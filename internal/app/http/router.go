@@ -1,8 +1,6 @@
 package http
 
 import (
-	"time"
-
 	"video-conference-be/internal/app/repository"
 	"video-conference-be/internal/app/service"
 	"video-conference-be/pkg/utility"
@@ -14,14 +12,16 @@ import (
 func NewRouter() *gin.Engine {
 	r := gin.Default()
 
-	// ==== CORS supaya Next.js (localhost:3000) bisa call backend (8080) ====
+	// CORS: allow frontend di localhost:3000
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"}, // FE URL kamu
+		AllowOrigins: []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		AllowCredentials: false,
 	}))
 
 	// init infra
@@ -33,13 +33,16 @@ func NewRouter() *gin.Engine {
 	authHandler := NewAuthHandler(authSvc)
 	lkHandler := NewLivekitHandler(lkSvc)
 
+	userSvc := service.NewUserService()
+	userHandler := NewUserHandler(userSvc)
+
 	// PUBLIC
 	r.GET("/healthz", lkHandler.Health)
 	r.GET("/public", authHandler.Public)
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
 
-	// AUTHENTICATED
+	// AUTH
 	api := r.Group("/api")
 	api.Use(JWTAuthMiddleware())
 	{
@@ -51,12 +54,19 @@ func NewRouter() *gin.Engine {
 	adminGroup := r.Group("/admin")
 	adminGroup.Use(JWTAuthMiddleware(), AdminOnly())
 	{
+		// LIVEKIT ROOM MANAGEMENT
 		adminGroup.POST("/livekit/rooms", lkHandler.CreateRoom)
 		adminGroup.GET("/livekit/rooms", lkHandler.ListRooms)
 		adminGroup.DELETE("/livekit/rooms/:name", lkHandler.DeleteRoom)
 
 		adminGroup.GET("/livekit/participants", lkHandler.ListParticipants)
 		adminGroup.DELETE("/livekit/participants", lkHandler.RemoveParticipant)
+
+		// USER MANAGEMENT
+		adminGroup.GET("/users", userHandler.ListUsers)
+		adminGroup.POST("/users", userHandler.CreateUser)
+		adminGroup.PATCH("/users/:id", userHandler.UpdateUserRole)
+		adminGroup.DELETE("/users/:id", userHandler.DeleteUser)
 	}
 
 	return r

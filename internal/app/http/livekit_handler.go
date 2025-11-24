@@ -2,10 +2,11 @@ package http
 
 import (
 	"net/http"
+
 	"video-conference-be/internal/app/service"
 
 	"github.com/gin-gonic/gin"
-	livekit "github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/livekit"
 )
 
 type LivekitHandler struct {
@@ -16,12 +17,14 @@ func NewLivekitHandler(lk service.LivekitService) *LivekitHandler {
 	return &LivekitHandler{lk: lk}
 }
 
+// batas maksimal peserta dianggap "full"
+const MaxRoomParticipants = 20
+
 func (h *LivekitHandler) Health(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
 }
 
-// USER: POST /api/livekit/token
-// Body: { "room": "room1" }
+// USER: POST /api/livekit/token { "room": "room1" }
 func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	var body struct {
 		Room string `json:"room"`
@@ -31,10 +34,8 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
-	// diasumsikan JWT middleware sudah set "username" di context
 	identity := c.GetString("username")
 	if identity == "" {
-		// fallback: kalau belum ada, bisa pakai anonymous atau error
 		identity = "anonymous"
 	}
 
@@ -53,7 +54,6 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 }
 
 // ADMIN: POST /admin/livekit/rooms
-// Body: { "name": "room1", "emptyTimeout": 0, "maxParticipants": 10, "metadata": "..." }
 func (h *LivekitHandler) CreateRoom(c *gin.Context) {
 	var body struct {
 		Name            string `json:"name"`
@@ -62,8 +62,13 @@ func (h *LivekitHandler) CreateRoom(c *gin.Context) {
 		Metadata        string `json:"metadata"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload (need name)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
+	}
+
+	// simple validation: kalau MaxParticipants > MaxRoomParticipants, paksa jadi MaxRoomParticipants
+	if body.MaxParticipants == 0 || body.MaxParticipants > MaxRoomParticipants {
+		body.MaxParticipants = MaxRoomParticipants
 	}
 
 	room, err := h.lk.CreateRoom(c.Request.Context(), &livekit.CreateRoomRequest{
@@ -76,7 +81,6 @@ func (h *LivekitHandler) CreateRoom(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, room)
 }
 
@@ -87,7 +91,26 @@ func (h *LivekitHandler) ListRooms(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, rooms)
+
+	// wrap LiveKit room dengan status
+	type RoomWithStatus struct {
+		*livekit.Room
+		Status string `json:"status"`
+	}
+
+	resp := make([]RoomWithStatus, 0, len(rooms))
+	for _, r := range rooms {
+		status := "open"
+		if int(r.NumParticipants) >= MaxRoomParticipants {
+			status = "max"
+		}
+		resp = append(resp, RoomWithStatus{
+			Room:   r,
+			Status: status,
+		})
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // ADMIN: DELETE /admin/livekit/rooms/:name
