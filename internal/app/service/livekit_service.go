@@ -16,6 +16,10 @@ type LivekitService interface {
 	DeleteRoom(ctx context.Context, name string) error
 	ListParticipants(ctx context.Context, room string) ([]*livekit.ParticipantInfo, error)
 	RemoveParticipant(ctx context.Context, room, identity string) error
+
+	// recording
+	StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error)
+	StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
 }
 
 type livekitService struct {
@@ -27,7 +31,6 @@ func NewLivekitService(client *utility.LivekitClient) LivekitService {
 }
 
 func (s *livekitService) GenerateUserToken(ctx context.Context, room, identity string) (string, string, error) {
-	// ctx belum kepakai di client, tapi pattern-nya tetap dibawa biar konsisten
 	return s.client.GenerateToken(room, identity, 2*time.Hour)
 }
 
@@ -49,4 +52,14 @@ func (s *livekitService) ListParticipants(ctx context.Context, room string) ([]*
 
 func (s *livekitService) RemoveParticipant(ctx context.Context, room, identity string) error {
 	return s.client.RemoveParticipant(ctx, room, identity)
+}
+
+// recording
+
+func (s *livekitService) StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error) {
+	return s.client.StartRoomRecording(ctx, roomName, filenamePrefix)
+}
+
+func (s *livekitService) StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error) {
+	return s.client.StopRoomRecording(ctx, roomName)
 }

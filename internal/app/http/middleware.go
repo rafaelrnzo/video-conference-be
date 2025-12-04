@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log"
 	"net/http"
 	"strings"
 
@@ -22,15 +23,31 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid Authorization header"})
 			return
 		}
-		claims, err := utility.ParseJWT(parts[1])
+
+		tokenStr := strings.TrimSpace(parts[1])
+
+		log.Printf("[JWT] incoming token (first 30 chars): %s\n", safePrefix(tokenStr, 30))
+
+		claims, err := utility.ParseJWT(tokenStr)
 		if err != nil {
+			log.Println("[JWT] parse error:", err) // << penting
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
+
+		log.Printf("[JWT] OK username=%s role=%s\n", claims.Username, claims.Role)
+
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
 		c.Next()
 	}
+}
+
+func safePrefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func AdminOnly() gin.HandlerFunc {

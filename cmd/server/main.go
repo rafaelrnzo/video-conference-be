@@ -3,17 +3,18 @@ package main
 import (
 	"fmt"
 	"log"
+	"video-conference-be/internal/domain/models"
 
 	"video-conference-be/internal/app/http"
-	"video-conference-be/internal/domain/user"
 	"video-conference-be/pkg/utility"
 
 	"gorm.io/gorm"
 )
 
 func autoMigrate(db *gorm.DB) {
-	db.AutoMigrate(&user.User{})
-	// &room.Room{} kalau sudah punya
+	for _, m := range models.Models {
+		db.AutoMigrate(m)
+	}
 }
 
 func main() {

@@ -2,6 +2,7 @@ package utility
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,7 +15,9 @@ type LivekitClient struct {
 	apiKey    string
 	apiSecret string
 	serverURL string
-	svc       *lksdk.RoomServiceClient
+
+	svc    *lksdk.RoomServiceClient
+	egress *lksdk.EgressClient
 }
 
 func NewLivekitClient() *LivekitClient {
@@ -24,9 +27,8 @@ func NewLivekitClient() *LivekitClient {
 		serverURL: Config.LivekitURL,
 	}
 
-	// Sama seperti main.go lama:
-	// svc := lksdk.NewRoomServiceClient(cfg.ServerURL, cfg.APIKey, cfg.APISecret)
 	c.svc = lksdk.NewRoomServiceClient(c.serverURL, c.apiKey, c.apiSecret)
+	c.egress = lksdk.NewEgressClient(c.serverURL, c.apiKey, c.apiSecret)
 
 	return c
 }
@@ -45,7 +47,6 @@ func (c *LivekitClient) normalizeWS(u string) string {
 	return trimmed
 }
 
-// GenerateToken – persis seperti generateToken() di main.go lama
 func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Duration) (string, string, error) {
 	at := auth.NewAccessToken(c.apiKey, c.apiSecret)
 
@@ -73,9 +74,6 @@ func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Durati
 	return jwt, c.normalizeWS(c.serverURL), nil
 }
 
-// ==== WRAPPER ROOM SERVICE (sama pola dengan kode lama) ====
-
-// ctx diambil dari handler Gin (c.Request.Context())
 func (c *LivekitClient) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error) {
 	return c.svc.CreateRoom(ctx, req)
 }
@@ -107,4 +105,89 @@ func (c *LivekitClient) RemoveParticipant(ctx context.Context, room, identity st
 		Identity: identity,
 	})
 	return err
+}
+
+func (c *LivekitClient) StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error) {
+	if filenamePrefix == "" {
+		filenamePrefix = fmt.Sprintf("%s/%s", roomName, roomName)
+	}
+
+	req := &livekit.RoomCompositeEgressRequest{
+		RoomName: roomName,
+		Layout:   "grid",
+		Options: &livekit.RoomCompositeEgressRequest_Preset{
+			Preset: livekit.EncodingOptionsPreset_H264_720P_30,
+		},
+	}
+
+	req.SegmentOutputs = []*livekit.SegmentedFileOutput{
+		{
+			FilenamePrefix:   filenamePrefix,
+			PlaylistName:     "index.m3u8",
+			LivePlaylistName: "",
+			SegmentDuration:  2,
+			Output: &livekit.SegmentedFileOutput_S3{
+				S3: &livekit.S3Upload{
+					AccessKey:      Config.MinioAccess,
+					Secret:         Config.MinioSecret,
+					Endpoint:       Config.MinioEndpoint,
+					Bucket:         Config.MinioBucket,
+					Region:         Config.MinioRegion,
+					ForcePathStyle: true,
+				},
+			},
+		},
+	}
+
+	info, err := c.egress.StartRoomCompositeEgress(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+func (c *LivekitClient) StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error) {
+	listResp, err := c.egress.ListEgress(ctx, &livekit.ListEgressRequest{
+		RoomName: roomName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listResp.Items) == 0 {
+		return nil, fmt.Errorf("no egress found for room %s", roomName)
+	}
+
+	var target *livekit.EgressInfo
+	for _, info := range listResp.Items {
+		if info.Status == livekit.EgressStatus_EGRESS_ACTIVE ||
+			info.Status == livekit.EgressStatus_EGRESS_STARTING {
+			target = info
+			break
+		}
+	}
+	if target == nil {
+		target = listResp.Items[len(listResp.Items)-1]
+	}
+
+	if target.Status == livekit.EgressStatus_EGRESS_ABORTED ||
+		target.Status == livekit.EgressStatus_EGRESS_COMPLETE ||
+		target.Status == livekit.EgressStatus_EGRESS_FAILED {
+		return target, nil
+	}
+
+	info, err := c.egress.StopEgress(ctx, &livekit.StopEgressRequest{
+		EgressId: target.EgressId,
+	})
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "EGRESS_ABORTED") ||
+			strings.Contains(msg, "EGRESS_COMPLETE") ||
+			strings.Contains(strings.ToLower(msg), "cannot be stopped") {
+			return target, nil
+		}
+		return nil, err
+	}
+
+	return info, nil
 }

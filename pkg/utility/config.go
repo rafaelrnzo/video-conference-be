@@ -14,6 +14,14 @@ type AppConfig struct {
 	LivekitAPIKey string
 	LivekitSecret string
 	LivekitURL    string
+
+	// MINIO / S3 utk egress
+	MinioEndpoint string
+	MinioBaseURL  string
+	MinioAccess   string
+	MinioSecret   string
+	MinioBucket   string
+	MinioRegion   string
 }
 
 var Config AppConfig
@@ -28,6 +36,13 @@ func LoadConfig() {
 		LivekitAPIKey: mustEnv("LIVEKIT_API_KEY"),
 		LivekitSecret: mustEnv("LIVEKIT_API_SECRET"),
 		LivekitURL:    mustEnv("LIVEKIT_SERVER_URL"),
+		MinioBaseURL:  mustEnv("MINIO_ENDPOINT"),
+
+		MinioEndpoint: mustEnv("MINIO_ENDPOINT"),   // contoh: http://minio-pusbahasa.10.70.0.45.nip.io
+		MinioAccess:   mustEnv("MINIO_ACCESS_KEY"), // admin
+		MinioSecret:   mustEnv("MINIO_SECRET_KEY"), // Falah0918PRGM
+		MinioBucket:   mustEnv("MINIO_BUCKET"),     // livekit-egress
+		MinioRegion:   getEnv("MINIO_REGION", "us-east-1"),
 	}
 }
 
