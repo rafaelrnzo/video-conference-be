@@ -1,13 +1,16 @@
 package http
 
 import (
+	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"video-conference-be/internal/app/service"
 	"video-conference-be/internal/domain/room"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 type RoomHandler struct {
@@ -19,8 +22,15 @@ func NewRoomHandler(svc service.RoomService) *RoomHandler {
 }
 
 func (h *RoomHandler) ListRooms(c *gin.Context) {
-	rooms, err := h.svc.ListRooms()
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+	username := c.GetString("username")
+
+	log.Printf("[ListRooms] userID=%d username=%s role=%s\n", userID, username, role)
+
+	rooms, err := h.svc.ListRooms(userID, username, role)
 	if err != nil {
+		log.Printf("[ListRooms] ERROR: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -28,22 +38,33 @@ func (h *RoomHandler) ListRooms(c *gin.Context) {
 }
 
 type createRoomReq struct {
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	MaxParticipants int    `json:"max_participants"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	MaxParticipants int       `json:"max_participants"`
+	AssignedTo      []string  `json:"assigned_to"`
+	GroupID         *uint     `json:"group_id"`
+	StartDate       time.Time `json:"start_date"`
+	EndDate         time.Time `json:"end_date"`
 }
 
 func (h *RoomHandler) CreateRoom(c *gin.Context) {
 	var body createRoomReq
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload: " + err.Error()})
 		return
 	}
+
+	createdByID := c.GetUint("user_id")
 
 	req := room.Room{
 		Name:            body.Name,
 		Description:     body.Description,
 		MaxParticipants: body.MaxParticipants,
+		AssignedTo:      pq.StringArray(body.AssignedTo),
+		GroupID:         body.GroupID,
+		StartDate:       body.StartDate,
+		EndDate:         body.EndDate,
+		CreatedByID:     createdByID,
 	}
 
 	createdRoom, err := h.svc.CreateRoom(req)
@@ -55,9 +76,13 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 }
 
 type updateRoomReq struct {
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	MaxParticipants int    `json:"max_participants"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	MaxParticipants int       `json:"max_participants"`
+	AssignedTo      []string  `json:"assigned_to"`
+	GroupID         *uint     `json:"group_id"`
+	StartDate       time.Time `json:"start_date"`
+	EndDate         time.Time `json:"end_date"`
 }
 
 func (h *RoomHandler) UpdateRoom(c *gin.Context) {
@@ -79,6 +104,10 @@ func (h *RoomHandler) UpdateRoom(c *gin.Context) {
 		Name:            body.Name,
 		Description:     body.Description,
 		MaxParticipants: body.MaxParticipants,
+		AssignedTo:      pq.StringArray(body.AssignedTo),
+		GroupID:         body.GroupID,
+		StartDate:       body.StartDate,
+		EndDate:         body.EndDate,
 	}
 
 	updatedRoom, err := h.svc.UpdateRoom(req)

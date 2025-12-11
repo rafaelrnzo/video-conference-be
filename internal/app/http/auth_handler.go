@@ -3,7 +3,6 @@ package http
 import (
 	"net/http"
 	"video-conference-be/internal/app/service"
-	"video-conference-be/internal/domain/user"
 
 	"github.com/gin-gonic/gin"
 )
@@ -56,8 +55,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"role":  u.Role,
+		"token":    token,
+		"username": u.Username,
+		"role":     u.Role,
+		"user_id":  u.ID,
 	})
 }
 
@@ -67,7 +68,7 @@ func (h *AuthHandler) Public(c *gin.Context) {
 
 func (h *AuthHandler) Protected(c *gin.Context) {
 	username := c.GetString("username")
-	role := c.MustGet("role").(user.Role)
+	role := c.GetString("role")
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "protected endpoint",
 		"username": username,

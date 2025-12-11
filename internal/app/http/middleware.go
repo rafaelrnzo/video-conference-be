@@ -30,15 +30,28 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		claims, err := utility.ParseJWT(tokenStr)
 		if err != nil {
-			log.Println("[JWT] parse error:", err) // << penting
+			log.Println("[JWT] parse error:", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
 
-		log.Printf("[JWT] OK username=%s role=%s\n", claims.Username, claims.Role)
+		// 🔎 Ambil user_id dari DB berdasarkan username
+		var u dUser.User
+		var userID uint
+		if err := utility.DB.Where("username = ?", claims.Username).First(&u).Error; err != nil {
+			log.Printf("[JWT] WARNING: user with username=%s not found, user_id=0. err=%v\n", claims.Username, err)
+			userID = 0
+		} else {
+			userID = u.ID
+		}
 
-		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
+		log.Printf("[JWT] OK user_id=%d username=%s role=%s\n", userID, claims.Username, claims.Role)
+
+		// simpan ke context
+		c.Set("user_id", userID)           // buat c.GetUint("user_id")
+		c.Set("username", claims.Username) // buat c.GetString("username")
+		c.Set("role", string(claims.Role)) // buat c.GetString("role") --> "admin" / "user"
+
 		c.Next()
 	}
 }
@@ -57,8 +70,13 @@ func AdminOnly() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "role missing"})
 			return
 		}
-		role, _ := roleVal.(dUser.Role)
-		if role != dUser.RoleAdmin {
+		roleStr, ok := roleVal.(string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid role type"})
+			return
+		}
+
+		if dUser.Role(roleStr) != dUser.RoleAdmin {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
 			return
 		}
