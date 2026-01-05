@@ -17,7 +17,6 @@ func NewUserHandler(svc service.UserService) *UserHandler {
 	return &UserHandler{svc: svc}
 }
 
-// GET /admin/users
 func (h *UserHandler) ListUsers(c *gin.Context) {
 	users, err := h.svc.ListUsers()
 	if err != nil {
@@ -33,7 +32,6 @@ type createUserReq struct {
 	Role     string `json:"role"`
 }
 
-// POST /admin/users
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	var body createUserReq
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -53,7 +51,6 @@ type updateRoleReq struct {
 	Role string `json:"role"`
 }
 
-// PATCH /admin/users/:id
 func (h *UserHandler) UpdateUserRole(c *gin.Context) {
 	idStr := c.Param("id")
 	id64, err := strconv.ParseUint(idStr, 10, 64)
@@ -76,7 +73,6 @@ func (h *UserHandler) UpdateUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, u)
 }
 
-// DELETE /admin/users/:id
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id64, err := strconv.ParseUint(idStr, 10, 64)

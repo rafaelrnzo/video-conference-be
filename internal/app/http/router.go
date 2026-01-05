@@ -24,12 +24,10 @@ func NewRouter() *gin.Engine {
 		AllowCredentials: true,
 	}))
 
-	// 1. Initialize Repositories
 	userRepo := repository.NewUserRepository()
 	groupRepo := repository.NewGroupRepository()
 	recordRepo := repository.NewRecordRepository()
 
-	// 2. Initialize Services
 	authSvc := service.NewAuthService(userRepo)
 	groupSvc := service.NewGroupService(groupRepo, userRepo)
 
@@ -40,7 +38,6 @@ func NewRouter() *gin.Engine {
 	userSvc := service.NewUserService()
 	recordSvc := service.NewRecordService(recordRepo)
 
-	// 3. Initialize Handlers
 	authHandler := NewAuthHandler(authSvc)
 	groupHandler := NewGroupHandler(groupSvc)
 	lkHandler := NewLivekitHandler(lkSvc, roomSvc, groupSvc)
@@ -53,16 +50,14 @@ func NewRouter() *gin.Engine {
 	r.GET("/public", authHandler.Public)
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
+	r.POST("/livekit/webhook", lkHandler.Webhook)
 
-	// (opsional) kalau mau ada pure public rooms tanpa filter group:
-	// r.GET("/rooms/public", roomHandler.ListPublicRooms) -> handler lain
-
-	// === AUTHENTICATED USER ROUTES (/api/...) ===
 	api := r.Group("/api")
 	api.Use(JWTAuthMiddleware())
 	{
 		api.GET("/protected", authHandler.Protected)
 		api.POST("/livekit/token", lkHandler.GenerateToken)
+		api.POST("/livekit/leave", lkHandler.LeaveRoom)
 
 		api.GET("/rooms", roomHandler.ListRooms)
 	}

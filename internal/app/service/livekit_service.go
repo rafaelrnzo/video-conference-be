@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
+	"fmt"
 	"video-conference-be/pkg/utility"
 
 	livekit "github.com/livekit/protocol/livekit"
+	"github.com/redis/go-redis/v9"
 )
 
 type LivekitService interface {
@@ -17,9 +19,13 @@ type LivekitService interface {
 	ListParticipants(ctx context.Context, room string) ([]*livekit.ParticipantInfo, error)
 	RemoveParticipant(ctx context.Context, room, identity string) error
 
-	// recording
 	StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error)
 	StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
+
+	// Presence
+	SetUserOnline(ctx context.Context, identity string, room string, ttl time.Duration) error
+	SetUserOffline(ctx context.Context, identity string) error
+	IsUserOnline(ctx context.Context, identity string) (bool, string, error)
 }
 
 type livekitService struct {
@@ -54,12 +60,32 @@ func (s *livekitService) RemoveParticipant(ctx context.Context, room, identity s
 	return s.client.RemoveParticipant(ctx, room, identity)
 }
 
-// recording
-
 func (s *livekitService) StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error) {
 	return s.client.StartRoomRecording(ctx, roomName, filenamePrefix)
 }
 
 func (s *livekitService) StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error) {
 	return s.client.StopRoomRecording(ctx, roomName)
+}
+
+func (s *livekitService) SetUserOnline(ctx context.Context, identity string, room string, ttl time.Duration) error {
+	key := fmt.Sprintf("user_presence:%s", identity)
+	return utility.RedisClient.Set(ctx, key, room, ttl).Err()
+}
+
+func (s *livekitService) SetUserOffline(ctx context.Context, identity string) error {
+	key := fmt.Sprintf("user_presence:%s", identity)
+	return utility.RedisClient.Del(ctx, key).Err()
+}
+
+func (s *livekitService) IsUserOnline(ctx context.Context, identity string) (bool, string, error) {
+	key := fmt.Sprintf("user_presence:%s", identity)
+	room, err := utility.RedisClient.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	return true, room, nil
 }

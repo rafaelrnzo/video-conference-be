@@ -22,6 +22,10 @@ type AppConfig struct {
 	MinioSecret   string
 	MinioBucket   string
 	MinioRegion   string
+
+	// Redis
+	RedisAddr     string
+	RedisPassword string
 }
 
 var Config AppConfig
@@ -43,6 +47,9 @@ func LoadConfig() {
 		MinioSecret:   mustEnv("MINIO_SECRET_KEY"), // Falah0918PRGM
 		MinioBucket:   mustEnv("MINIO_BUCKET"),     // livekit-egress
 		MinioRegion:   getEnv("MINIO_REGION", "us-east-1"),
+
+		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
 	}
 }
 

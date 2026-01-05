@@ -24,7 +24,7 @@ type recordingService struct {
 	recordSvc    RecordService
 
 	mu           sync.Mutex
-	activeByRoom map[string]string // roomName -> egressID
+	activeByRoom map[string]string
 }
 
 func NewRecordingService(recordSvc RecordService) RecordingService {
@@ -44,7 +44,6 @@ func NewRecordingService(recordSvc RecordService) RecordingService {
 }
 
 func (s *recordingService) StartRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error) {
-	// filename prefix: recordings/{room}/{timestamp}
 	ts := time.Now().Format("20060102-150405")
 	prefix := fmt.Sprintf("recordings/%s/%s", roomName, ts)
 
@@ -96,7 +95,6 @@ func (s *recordingService) StopRoomRecording(ctx context.Context, roomName strin
 	log.Printf("[EGRESS STOP] id=%s room=%s status=%s error=%s",
 		info.EgressId, info.RoomName, info.Status.String(), info.Error)
 
-	// hanya kalau COMPLETE baru kita catat ke DB
 	if info.Status == livekit.EgressStatus_EGRESS_COMPLETE {
 		s.handleEgressComplete(ctx, info)
 	}

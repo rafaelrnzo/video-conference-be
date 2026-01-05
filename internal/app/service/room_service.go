@@ -32,7 +32,6 @@ func (s *roomService) ListRooms(userID uint, username, role string) ([]room.Room
 		Preload("Group").
 		Order("created_at ASC")
 
-	// Non-admin: filter berdasarkan group_members & assigned_to
 	if role != "admin" {
 		query = query.Where(`
 			(group_id IS NULL) OR 

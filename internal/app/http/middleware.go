@@ -35,7 +35,6 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 🔎 Ambil user_id dari DB berdasarkan username
 		var u dUser.User
 		var userID uint
 		if err := utility.DB.Where("username = ?", claims.Username).First(&u).Error; err != nil {
@@ -47,10 +46,9 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		log.Printf("[JWT] OK user_id=%d username=%s role=%s\n", userID, claims.Username, claims.Role)
 
-		// simpan ke context
-		c.Set("user_id", userID)           // buat c.GetUint("user_id")
-		c.Set("username", claims.Username) // buat c.GetString("username")
-		c.Set("role", string(claims.Role)) // buat c.GetString("role") --> "admin" / "user"
+		c.Set("user_id", userID)
+		c.Set("username", claims.Username)
+		c.Set("role", string(claims.Role))
 
 		c.Next()
 	}

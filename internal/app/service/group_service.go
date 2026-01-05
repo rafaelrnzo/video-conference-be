@@ -15,8 +15,6 @@ type GroupService interface {
 	DeleteGroup(ctx context.Context, id uint) error
 	AddMember(ctx context.Context, groupID, userID uint) error
 	RemoveMember(ctx context.Context, groupID, userID uint) error
-
-	// FUNGSI BARU
 	IsMember(ctx context.Context, groupID, userID uint) (bool, error)
 }
 
@@ -97,7 +95,6 @@ func (s *groupService) RemoveMember(ctx context.Context, groupID, userID uint) e
 	return s.groupRepo.RemoveMember(ctx, groupID, userID)
 }
 
-// IMPLEMENTASI SERVICE
 func (s *groupService) IsMember(ctx context.Context, groupID, userID uint) (bool, error) {
 	return s.groupRepo.IsMember(ctx, groupID, userID)
 }

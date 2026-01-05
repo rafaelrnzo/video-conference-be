@@ -8,6 +8,7 @@ import (
 	"video-conference-be/internal/app/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/livekit/protocol/livekit"
 )
 
 type LivekitHandler struct {
@@ -33,17 +34,14 @@ func stringInSlice(s string, list []string) bool {
 	return false
 }
 
-// respondError bikin format error JSON konsisten: { "error": "..." }
 func respondError(c *gin.Context, status int, msg string) {
 	c.AbortWithStatusJSON(status, gin.H{
 		"error": msg,
 	})
 }
 
-// logAndRespondError log error ke gin (biar keliatan di middleware / logger) lalu kirim response ke client
 func logAndRespondError(c *gin.Context, status int, msg string, err error) {
 	if err != nil {
-		// simpan error ke gin context (bisa diproses middleware logging)
 		_ = c.Error(err)
 	}
 	respondError(c, status, msg)
@@ -64,8 +62,6 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 
 	dbRoom, err := h.roomSvc.GetRoomByCode(body.RoomCode)
 	if err != nil {
-		// kita anggap error di sini = room tidak ditemukan / invalid,
-		// kalau nanti ada ErrNotFound khusus tinggal pakai errors.Is
 		logAndRespondError(c, http.StatusNotFound, "room not found or invalid code", err)
 		return
 	}
@@ -85,6 +81,21 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	identity := c.GetString("username")
 	userID := c.GetUint("user_id")
 
+	// 0. Cek apakah user sedang online di room lain
+	isOnline, onlineRoom, err := h.lk.IsUserOnline(c.Request.Context(), identity)
+	if err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to check user presence", err)
+		return
+	}
+	if isOnline {
+		// Jika user online di room yang SAMA, kita biarkan (re-join/refresh).
+		// Jika BEDA room, tolak.
+		if onlineRoom != dbRoom.RoomCode {
+			respondError(c, http.StatusConflict, fmt.Sprintf("user is currently in another room: %s", onlineRoom))
+			return
+		}
+	}
+
 	isAllowed := false
 
 	// 1. Cek AssignedTo
@@ -93,13 +104,11 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 			isAllowed = true
 		}
 	} else {
-		// Jika AssignedTo kosong, cek apakah Room Publik (GroupID nil/0)
 		if dbRoom.GroupID == nil || *dbRoom.GroupID == 0 {
 			isAllowed = true
 		}
 	}
 
-	// 2. Cek Group Membership
 	if !isAllowed && dbRoom.GroupID != nil && *dbRoom.GroupID > 0 {
 		isMember, err := h.groupSvc.IsMember(c.Request.Context(), *dbRoom.GroupID, userID)
 		if err != nil {
@@ -122,6 +131,8 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
+	_ = h.lk.SetUserOnline(c.Request.Context(), identity, dbRoom.RoomCode, 2*time.Minute)
+
 	c.JSON(http.StatusOK, gin.H{
 		"identity":  identity,
 		"room":      dbRoom.RoomCode,
@@ -138,7 +149,6 @@ func (h *LivekitHandler) ListActiveRooms(c *gin.Context) {
 		return
 	}
 
-	// Jika rooms nil (tidak ada room aktif), return array kosong []
 	if rooms == nil {
 		c.JSON(http.StatusOK, []interface{}{})
 		return
@@ -188,6 +198,55 @@ func (h *LivekitHandler) RemoveParticipant(c *gin.Context) {
 
 	if err := h.lk.RemoveParticipant(c.Request.Context(), room, identity); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to remove participant", err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+func (h *LivekitHandler) Webhook(c *gin.Context) {
+	// Parse Webhook
+	// Note: In production, verify signature using auth.GetWebhookVerifier().Validate(token)
+	
+	var event struct {
+		Event       string                   `json:"event"`
+		Room        *livekit.Room            `json:"room"`
+		Participant *livekit.ParticipantInfo `json:"participant"`
+	}
+
+	if err := c.ShouldBindJSON(&event); err != nil {
+		fmt.Printf("webhook error: %v\n", err)
+		c.String(http.StatusOK, "ok") // always return 200 to LiveKit
+		return
+	}
+
+	fmt.Printf("LiveKit Webhook: %s, Room: %s, Identity: %s\n", event.Event, event.Room.Name, event.Participant.Identity)
+
+	ctx := c.Request.Context()
+
+	if event.Event == "participant_joined" {
+		if err := h.lk.SetUserOnline(ctx, event.Participant.Identity, event.Room.Name, 24*time.Hour); err != nil {
+			fmt.Printf("failed to set user online: %v\n", err)
+		}
+	} else if event.Event == "participant_left" {
+		if err := h.lk.SetUserOffline(ctx, event.Participant.Identity); err != nil {
+			fmt.Printf("failed to set user offline: %v\n", err)
+		}
+	}
+
+	c.String(http.StatusOK, "ok")
+}
+
+func (h *LivekitHandler) LeaveRoom(c *gin.Context) {
+	identity := c.GetString("username")
+	if identity == "" {
+		respondError(c, http.StatusUnauthorized, "invalid identity")
+		return
+	}
+
+	// Force remove from Redis
+	if err := h.lk.SetUserOffline(c.Request.Context(), identity); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to set user offline", err)
 		return
 	}
 

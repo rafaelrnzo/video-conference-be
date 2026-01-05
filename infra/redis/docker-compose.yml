@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass admin.admin
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  redis-ui:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-ui
+    restart: always
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:admin.admin
+      - HTTP_USER=root
+      - HTTP_PASSWORD=admin.admin
+    ports:
+      - "8081:8081"
+
+volumes:
+  redis_data:

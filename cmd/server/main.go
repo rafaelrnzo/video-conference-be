@@ -20,6 +20,7 @@ func autoMigrate(db *gorm.DB) {
 func main() {
 	utility.LoadConfig()
 	utility.InitDB()
+	utility.InitRedis()
 	autoMigrate(utility.DB)
 
 	r := http.NewRouter()
