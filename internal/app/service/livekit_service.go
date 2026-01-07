@@ -2,9 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
-	"fmt"
 	"video-conference-be/pkg/utility"
 
 	livekit "github.com/livekit/protocol/livekit"
@@ -18,12 +19,9 @@ type LivekitService interface {
 	DeleteRoom(ctx context.Context, name string) error
 	ListParticipants(ctx context.Context, room string) ([]*livekit.ParticipantInfo, error)
 	RemoveParticipant(ctx context.Context, room, identity string) error
-
 	StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error)
 	StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
-
-	// Presence
-	SetUserOnline(ctx context.Context, identity string, room string, ttl time.Duration) error
+	SetUserOnline(ctx context.Context, userID uint, identity string, room string, ttl time.Duration) error
 	SetUserOffline(ctx context.Context, identity string) error
 	IsUserOnline(ctx context.Context, identity string) (bool, string, error)
 }
@@ -68,9 +66,10 @@ func (s *livekitService) StopRoomRecording(ctx context.Context, roomName string)
 	return s.client.StopRoomRecording(ctx, roomName)
 }
 
-func (s *livekitService) SetUserOnline(ctx context.Context, identity string, room string, ttl time.Duration) error {
+func (s *livekitService) SetUserOnline(ctx context.Context, userID uint, identity string, room string, ttl time.Duration) error {
 	key := fmt.Sprintf("user_presence:%s", identity)
-	return utility.RedisClient.Set(ctx, key, room, ttl).Err()
+	value := fmt.Sprintf("%d:%s:%s", userID, room, identity)
+	return utility.RedisClient.Set(ctx, key, value, ttl).Err()
 }
 
 func (s *livekitService) SetUserOffline(ctx context.Context, identity string) error {
@@ -80,12 +79,18 @@ func (s *livekitService) SetUserOffline(ctx context.Context, identity string) er
 
 func (s *livekitService) IsUserOnline(ctx context.Context, identity string) (bool, string, error) {
 	key := fmt.Sprintf("user_presence:%s", identity)
-	room, err := utility.RedisClient.Get(ctx, key).Result()
+	val, err := utility.RedisClient.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return false, "", nil
 	}
 	if err != nil {
 		return false, "", err
 	}
-	return true, room, nil
+
+	parts := strings.Split(val, ":")
+	if len(parts) >= 2 {
+		return true, parts[1], nil
+	}
+
+	return true, val, nil
 }

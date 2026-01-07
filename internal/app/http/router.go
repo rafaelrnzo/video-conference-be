@@ -58,6 +58,7 @@ func NewRouter() *gin.Engine {
 		api.GET("/protected", authHandler.Protected)
 		api.POST("/livekit/token", lkHandler.GenerateToken)
 		api.POST("/livekit/leave", lkHandler.LeaveRoom)
+		api.POST("/livekit/kick", lkHandler.KickParticipant)
 
 		api.GET("/rooms", roomHandler.ListRooms)
 	}
