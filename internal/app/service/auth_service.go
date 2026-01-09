@@ -7,6 +7,8 @@ import (
 
 	dUser "video-conference-be/internal/domain/user"
 	"video-conference-be/pkg/utility"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService interface {
@@ -23,9 +25,13 @@ func NewAuthService(userRepo dUser.Repository) AuthService {
 }
 
 func (s *authService) Register(ctx context.Context, username, password string) (*dUser.User, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
 	u := &dUser.User{
 		Username:     username,
-		PasswordHash: password, // TODO: hash with bcrypt
+		PasswordHash: string(hashedPassword),
 		Role:         dUser.RoleUser,
 	}
 	if err := s.userRepo.Create(ctx, u); err != nil {
@@ -39,7 +45,7 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 	if err != nil {
 		return "", nil, errors.New("invalid credentials")
 	}
-	if u.PasswordHash != password {
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return "", nil, errors.New("invalid credentials")
 	}
 	token, err := utility.GenerateJWT(u.Username, u.Role, 24*time.Hour)

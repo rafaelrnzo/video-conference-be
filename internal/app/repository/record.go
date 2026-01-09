@@ -56,3 +56,9 @@ func (r *recordRepository) Update(ctx context.Context, rec *dRecord.Record) erro
 func (r *recordRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&dRecord.Record{}, id).Error
 }
+
+func (r *recordRepository) Exists(ctx context.Context, link string) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&dRecord.Record{}).Where("link = ?", link).Count(&count).Error
+	return count > 0, err
+}

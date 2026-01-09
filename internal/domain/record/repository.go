@@ -9,4 +9,5 @@ type Repository interface {
 	GetByID(ctx context.Context, id uint) (*Record, error)
 	Update(ctx context.Context, r *Record) error
 	Delete(ctx context.Context, id uint) error
+	Exists(ctx context.Context, link string) (bool, error)
 }

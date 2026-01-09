@@ -31,7 +31,14 @@ type AppConfig struct {
 var Config AppConfig
 
 func LoadConfig() {
-	_ = godotenv.Load()
+	dir, _ := os.Getwd()
+	log.Printf("Current working directory: %s", dir)
+
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Error loading .env file: %v", err)
+		// Try loading from parent directories just in case
+		_ = godotenv.Load("../../.env")
+	}
 
 	Config = AppConfig{
 		Port:          getEnv("PORT", "4000"),

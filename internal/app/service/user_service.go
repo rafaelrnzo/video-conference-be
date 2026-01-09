@@ -91,6 +91,11 @@ func (s *userService) UpdateUserRole(id uint, roleStr string) (*user.User, error
 }
 
 func (s *userService) DeleteUser(id uint) error {
+	// Manually delete from group_members to avoid foreign key constraint errors
+	if err := utility.DB.Table("group_members").Where("user_id = ?", id).Delete(nil).Error; err != nil {
+		return err
+	}
+
 	if err := utility.DB.Delete(&user.User{}, id).Error; err != nil {
 		return err
 	}

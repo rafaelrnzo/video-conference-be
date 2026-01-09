@@ -18,12 +18,14 @@ import (
 type RecordingHandler struct {
 	lk        service.LivekitService
 	recordSvc service.RecordService
+	recordingSvc service.RecordingService
 }
 
-func NewRecordingHandler(lk service.LivekitService, recordSvc service.RecordService) *RecordingHandler {
+func NewRecordingHandler(lk service.LivekitService, recordSvc service.RecordService, recordingSvc service.RecordingService) *RecordingHandler {
 	return &RecordingHandler{
 		lk:        lk,
 		recordSvc: recordSvc,
+		recordingSvc: recordingSvc,
 	}
 }
 
@@ -227,4 +229,12 @@ func (h *RecordingHandler) DeleteRecord(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+func (h *RecordingHandler) Sync(c *gin.Context) {
+	if err := h.recordingSvc.SyncFromMinio(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "sync triggered"})
 }

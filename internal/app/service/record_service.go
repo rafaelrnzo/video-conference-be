@@ -13,6 +13,7 @@ type RecordService interface {
 	ListByRoomID(ctx context.Context, roomID string) ([]*dRecord.Record, error)
 	UpdateName(ctx context.Context, id uint, newName string) (*dRecord.Record, error)
 	Delete(ctx context.Context, id uint) error
+	Exists(ctx context.Context, link string) (bool, error)
 }
 
 type recordService struct {
@@ -59,4 +60,8 @@ func (s *recordService) UpdateName(ctx context.Context, id uint, newName string)
 
 func (s *recordService) Delete(ctx context.Context, id uint) error {
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *recordService) Exists(ctx context.Context, link string) (bool, error) {
+	return s.repo.Exists(ctx, link)
 }
