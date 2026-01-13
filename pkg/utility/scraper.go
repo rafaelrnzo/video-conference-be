@@ -36,8 +36,9 @@ func ScrapeOG(targetURL string) (*OGMeta, error) {
 	if err != nil {
 		return nil, err
 	}
-	// User-Agent to look like a browser/bot so sites allow us
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; MeetBot/1.0)")
+	// User-Agent to look like a real browser (Chrome on Windows)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -49,8 +50,8 @@ func ScrapeOG(targetURL string) (*OGMeta, error) {
 		return nil, fmt.Errorf("status code %d", resp.StatusCode)
 	}
 
-	// 3. Read body (limit to 500KB to prevent abuse/dos)
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	// 3. Read body (limit to 1MB)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
 		return nil, err
 	}
@@ -58,31 +59,69 @@ func ScrapeOG(targetURL string) (*OGMeta, error) {
 
 	meta := &OGMeta{URL: targetURL}
 
-	// 4. Regex parsing for OG tags
-	// Note: html.Parse is more robust but regex is fine for simple OG extraction
-	// Title
-	meta.Title = extractTag(html, `property="og:title"\s+content="([^"]+)"`)
+	// 4. Robust parsing
+	meta.Title = findMetaProperty(html, "og:title")
 	if meta.Title == "" {
-		meta.Title = extractTag(html, `<title>([^<]+)</title>`)
+		meta.Title = findMetaName(html, "title") // twitter:title etc
+	}
+	if meta.Title == "" {
+		meta.Title = extractTitleTag(html)
 	}
 
-	// Description
-	meta.Description = extractTag(html, `property="og:description"\s+content="([^"]+)"`)
+	meta.Description = findMetaProperty(html, "og:description")
 	if meta.Description == "" {
-		meta.Description = extractTag(html, `name="description"\s+content="([^"]+)"`)
+		meta.Description = findMetaName(html, "description")
 	}
 
-	// Image
-	meta.Image = extractTag(html, `property="og:image"\s+content="([^"]+)"`)
+	meta.Image = findMetaProperty(html, "og:image")
+	if meta.Image == "" {
+		meta.Image = findMetaName(html, "twitter:image")
+	}
 
 	return meta, nil
 }
 
-func extractTag(html, pattern string) string {
-	re := regexp.MustCompile(pattern)
-	matches := re.FindStringSubmatch(html)
-	if len(matches) > 1 {
-		return htmlUnescape(matches[1])
+// Helpers for flexible attribute parsing
+func findMetaProperty(html, prop string) string {
+	// Matches <meta ... property="prop" ... content="value" ... > OR content first
+	// We use a simplified scan to find the tag containing the property, then extract content.
+	// This is regex-heavy but stdlib constraint limits us.
+	// Allow property="X" or property='X'
+	return extractContentFromMeta(html, `property=["']`+regexp.QuoteMeta(prop)+`["']`)
+}
+
+func findMetaName(html, name string) string {
+	return extractContentFromMeta(html, `name=["']`+regexp.QuoteMeta(name)+`["']`)
+}
+
+func extractContentFromMeta(html, identPattern string) string {
+	// Look for a <meta> tag containing identPattern
+	// <meta (attrs)>
+	reTag := regexp.MustCompile(`<meta\s+([^>]+)>`)
+	matches := reTag.FindAllStringSubmatch(html, -1)
+	
+	identRe := regexp.MustCompile(identPattern)
+
+	for _, m := range matches {
+		attrs := m[1]
+		if identRe.MatchString(attrs) {
+			// This tag allows the property/name. Now find content.
+			// content="value" or content='value'
+			contentRe := regexp.MustCompile(`content=["']([^"']+)["']`)
+			cMatch := contentRe.FindStringSubmatch(attrs)
+			if len(cMatch) > 1 {
+				return htmlUnescape(cMatch[1])
+			}
+		}
+	}
+	return ""
+}
+
+func extractTitleTag(html string) string {
+	re := regexp.MustCompile(`<title>([^<]+)</title>`)
+	m := re.FindStringSubmatch(html)
+	if len(m) > 1 {
+		return htmlUnescape(m[1])
 	}
 	return ""
 }
