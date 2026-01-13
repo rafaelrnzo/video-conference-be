@@ -191,3 +191,21 @@ func (c *LivekitClient) StopRoomRecording(ctx context.Context, roomName string) 
 
 	return info, nil
 }
+
+func (c *LivekitClient) UpdateRoomMetadata(ctx context.Context, room, metadata string) error {
+	_, err := c.svc.UpdateRoomMetadata(ctx, &livekit.UpdateRoomMetadataRequest{
+		Room:     room,
+		Metadata: metadata,
+	})
+	return err
+}
+
+func (c *LivekitClient) MutePublishedTrack(ctx context.Context, room, identity, trackSid string, muted bool) error {
+	_, err := c.svc.MutePublishedTrack(ctx, &livekit.MuteRoomTrackRequest{
+		Room:     room,
+		Identity: identity,
+		TrackSid: trackSid,
+		Muted:    muted,
+	})
+	return err
+}

@@ -291,3 +291,40 @@ func (h *LivekitHandler) KickParticipant(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+func (h *LivekitHandler) MuteAll(c *gin.Context) {
+	var body struct {
+		RoomCode  string `json:"room_code"`
+		MuteAudio bool   `json:"mute_audio"`
+		MuteVideo bool   `json:"mute_video"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.lk.MuteAllParticipants(c.Request.Context(), body.RoomCode, body.MuteAudio, body.MuteVideo); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to mute participants", err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *LivekitHandler) UpdateRoomPermissions(c *gin.Context) {
+	var body struct {
+		RoomCode string `json:"room_code"`
+		Metadata string `json:"metadata"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.lk.UpdateRoomMetadata(c.Request.Context(), body.RoomCode, body.Metadata); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to update room metadata", err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}

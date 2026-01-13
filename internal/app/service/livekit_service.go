@@ -24,6 +24,8 @@ type LivekitService interface {
 	SetUserOnline(ctx context.Context, userID uint, identity string, room string, ttl time.Duration) error
 	SetUserOffline(ctx context.Context, identity string) error
 	IsUserOnline(ctx context.Context, identity string) (bool, string, error)
+	UpdateRoomMetadata(ctx context.Context, room string, metadata string) error
+	MuteAllParticipants(ctx context.Context, room string, muteAudio, muteVideo bool) error
 }
 
 type livekitService struct {
@@ -93,4 +95,27 @@ func (s *livekitService) IsUserOnline(ctx context.Context, identity string) (boo
 	}
 
 	return true, val, nil
+}
+
+func (s *livekitService) UpdateRoomMetadata(ctx context.Context, room string, metadata string) error {
+	return s.client.UpdateRoomMetadata(ctx, room, metadata)
+}
+
+func (s *livekitService) MuteAllParticipants(ctx context.Context, room string, muteAudio, muteVideo bool) error {
+	participants, err := s.client.ListParticipants(ctx, room)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range participants {
+		for _, t := range p.Tracks {
+			if muteAudio && t.Type == livekit.TrackType_AUDIO {
+				_ = s.client.MutePublishedTrack(ctx, room, p.Identity, t.Sid, true)
+			}
+			if muteVideo && t.Type == livekit.TrackType_VIDEO {
+				_ = s.client.MutePublishedTrack(ctx, room, p.Identity, t.Sid, true)
+			}
+		}
+	}
+	return nil
 }

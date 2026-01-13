@@ -45,6 +45,7 @@ func NewRouter() *gin.Engine {
 	userHandler := NewUserHandler(userSvc)
 	recordingSvc := service.NewRecordingService(recordSvc)
 	recordingHandler := NewRecordingHandler(lkSvc, recordSvc, recordingSvc)
+	utilHandler := NewUtilityHandler()
 
 	// === PUBLIC ROUTES ===
 	r.GET("/healthz", lkHandler.Health)
@@ -60,6 +61,7 @@ func NewRouter() *gin.Engine {
 		api.POST("/livekit/token", lkHandler.GenerateToken)
 		api.POST("/livekit/leave", lkHandler.LeaveRoom)
 		api.POST("/livekit/kick", lkHandler.KickParticipant)
+		api.GET("/meta", utilHandler.GetLinkMeta)
 
 		api.GET("/rooms", roomHandler.ListRooms)
 	}
@@ -82,6 +84,8 @@ func NewRouter() *gin.Engine {
 		adminGroup.DELETE("/livekit/rooms/:name", lkHandler.DeleteActiveRoom)
 		adminGroup.GET("/livekit/participants", lkHandler.ListParticipants)
 		adminGroup.DELETE("/livekit/participants", lkHandler.RemoveParticipant)
+		adminGroup.POST("/livekit/rooms/mute-all", lkHandler.MuteAll)
+		adminGroup.POST("/livekit/rooms/permissions", lkHandler.UpdateRoomPermissions)
 
 		// RECORDINGS
 		adminGroup.POST("/livekit/recordings/start", recordingHandler.StartRecording)
