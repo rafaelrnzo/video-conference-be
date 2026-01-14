@@ -140,12 +140,10 @@ func buildRecordingLinkFromInfo(info *livekit.EgressInfo) (name string, url stri
 
 	if len(info.SegmentResults) > 0 {
 		s := info.SegmentResults[0]
-		prefix := strings.Trim(s.FilenamePrefix, "/")
 		playlist := strings.Trim(s.PlaylistName, "/")
 
-		if prefix != "" && playlist != "" {
-			objectPath = path.Join(prefix, playlist)
-		} else if playlist != "" {
+		if playlist != "" {
+			// fixed build error
 			objectPath = playlist
 		}
 	}
