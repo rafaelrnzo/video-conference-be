@@ -17,6 +17,7 @@ COPY . .
 
 # Build the Go app
 RUN CGO_ENABLED=0 GOOS=linux go build -o server ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o seeder ./cmd/seeder/main.go
 
 # Start a new stage from scratch
 FROM alpine:latest
@@ -33,6 +34,7 @@ WORKDIR /root/
 
 # Copy the Pre-built binary file from the previous stage
 COPY --from=builder /app/server .
+COPY --from=builder /app/seeder .
 
 # Copy .env file
 COPY --from=builder /app/.env .
