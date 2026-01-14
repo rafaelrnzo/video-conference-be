@@ -25,7 +25,12 @@ func main() {
 
 	r := http.NewRouter()
 
-	addr := ":" + utility.Config.Port
-	fmt.Printf("Server running at http://localhost%s\n", addr)
+	port := utility.Config.Port
+	if port == "" {
+		port = "8080"
+	}
+
+	addr := ":" + port
+	log.Printf("Server running on %s\n", addr)
 	log.Fatal(r.Run(addr))
 }

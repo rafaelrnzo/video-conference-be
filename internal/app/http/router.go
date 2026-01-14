@@ -15,7 +15,7 @@ func NewRouter() *gin.Engine {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
 			"http://localhost:3000",
-			"http://lantech-vicon-fe-oo4azl-5e7108-167-86-106-191.traefik.me",
+			"http://lantech-vicon-fe-oo4azl-0de674-167-86-106-191.traefik.me",
 			"http://127.0.0.1:3000",
 			"http://192.168.100.130:3000",
 		},
