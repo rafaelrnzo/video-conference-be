@@ -46,6 +46,7 @@ func NewRouter() *gin.Engine {
 	userHandler := NewUserHandler(userSvc)
 	recordingSvc := service.NewRecordingService(recordSvc)
 	recordingHandler := NewRecordingHandler(lkSvc, recordSvc, recordingSvc)
+	pollHandler := NewPollHandler()
 	utilHandler := NewUtilityHandler()
 
 	// === PUBLIC ROUTES ===
@@ -106,7 +107,12 @@ func NewRouter() *gin.Engine {
 		adminGroup.GET("/rooms", roomHandler.ListRooms)
 		adminGroup.POST("/rooms", roomHandler.CreateRoom)
 		adminGroup.PATCH("/rooms/:id", roomHandler.UpdateRoom)
+		adminGroup.POST("/rooms", roomHandler.CreateRoom)
+		adminGroup.PATCH("/rooms/:id", roomHandler.UpdateRoom)
 		adminGroup.DELETE("/rooms/:id", roomHandler.DeleteRoom)
+
+		// POLLS
+		adminGroup.POST("/polls", pollHandler.SavePoll)
 	}
 
 	return r
