@@ -22,13 +22,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o seeder ./cmd/seeder/main.go
 # Start a new stage from scratch
 FROM alpine:latest
 
-# --- FIX START ---
 # Install ca-certificates AND tzdata (required for TimeZone=Asia/Jakarta)
 RUN apk --no-cache add ca-certificates tzdata
 
 # Set the timezone globally inside the container
 ENV TZ=Asia/Jakarta
-# --- FIX END ---
 
 WORKDIR /root/
 
