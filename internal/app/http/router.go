@@ -107,8 +107,6 @@ func NewRouter() *gin.Engine {
 		adminGroup.GET("/rooms", roomHandler.ListRooms)
 		adminGroup.POST("/rooms", roomHandler.CreateRoom)
 		adminGroup.PATCH("/rooms/:id", roomHandler.UpdateRoom)
-		adminGroup.POST("/rooms", roomHandler.CreateRoom)
-		adminGroup.PATCH("/rooms/:id", roomHandler.UpdateRoom)
 		adminGroup.DELETE("/rooms/:id", roomHandler.DeleteRoom)
 
 		// POLLS
