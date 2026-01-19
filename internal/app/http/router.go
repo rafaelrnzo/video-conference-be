@@ -46,7 +46,11 @@ func NewRouter() *gin.Engine {
 	userHandler := NewUserHandler(userSvc)
 	recordingSvc := service.NewRecordingService(recordSvc)
 	recordingHandler := NewRecordingHandler(lkSvc, recordSvc, recordingSvc)
-	pollHandler := NewPollHandler()
+	
+	pollRepo := repository.NewPollRepository()
+	pollSvc := service.NewPollService(pollRepo)
+	pollHandler := NewPollHandler(pollSvc)
+	
 	utilHandler := NewUtilityHandler()
 
 	// === PUBLIC ROUTES ===
@@ -63,6 +67,7 @@ func NewRouter() *gin.Engine {
 		api.POST("/livekit/token", lkHandler.GenerateToken)
 		api.POST("/livekit/leave", lkHandler.LeaveRoom)
 		api.POST("/livekit/kick", lkHandler.KickParticipant)
+		api.POST("/livekit/admit", lkHandler.AdmitParticipant)
 		api.GET("/meta", utilHandler.GetLinkMeta)
 
 		api.GET("/rooms", roomHandler.ListRooms)

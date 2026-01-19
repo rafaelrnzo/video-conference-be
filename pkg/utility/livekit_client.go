@@ -47,24 +47,23 @@ func (c *LivekitClient) normalizeWS(u string) string {
 	return trimmed
 }
 
-func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Duration) (string, string, error) {
+func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Duration, canPublish, canSubscribe bool, metadata string) (string, string, error) {
 	at := auth.NewAccessToken(c.apiKey, c.apiSecret)
 
-	canPub := true
-	canSub := true
 	canData := true
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
 		Room:           roomName,
-		CanPublish:     &canPub,
-		CanSubscribe:   &canSub,
+		CanPublish:     &canPublish,
+		CanSubscribe:   &canSubscribe,
 		CanPublishData: &canData,
 	}
 
 	at.SetVideoGrant(grant).
 		SetIdentity(identity).
-		SetValidFor(ttl)
+		SetValidFor(ttl).
+		SetMetadata(metadata)
 
 	jwt, err := at.ToJWT()
 	if err != nil {
@@ -72,6 +71,17 @@ func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Durati
 	}
 
 	return jwt, c.normalizeWS(c.serverURL), nil
+}
+
+func (c *LivekitClient) UpdateParticipant(ctx context.Context, room, identity string, metadata string, permission *livekit.ParticipantPermission) error {
+	req := &livekit.UpdateParticipantRequest{
+		Room:       room,
+		Identity:   identity,
+		Metadata:   metadata,
+		Permission: permission,
+	}
+	_, err := c.svc.UpdateParticipant(ctx, req)
+	return err
 }
 
 func (c *LivekitClient) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error) {

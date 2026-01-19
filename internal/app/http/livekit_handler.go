@@ -122,7 +122,24 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
-	token, host, err := h.lk.GenerateUserToken(c.Request.Context(), dbRoom.RoomCode, identity)
+	// Determine if user needs to wait (Public Room + Not Admin + Not Creator + Not Assigned + Not Member)
+	isWaiting := false
+
+	// Check if user is Admin or Creator (always allowed instantly)
+	// Creator check could be: dbRoom.CreatedByID == userID
+	// Admin check: c.GetString("role") == "admin"
+	role := c.GetString("role")
+	isAdmin := role == string(dUser.RoleAdmin)
+	isCreator := dbRoom.CreatedByID == userID
+
+	if !isAdmin && !isCreator {
+		// If Public Room (No Group, No Assignments) -> Waiting Room
+		if (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0 {
+			isWaiting = true
+		}
+	}
+
+	token, host, err := h.lk.GenerateUserToken(c.Request.Context(), dbRoom.RoomCode, identity, isWaiting)
 	if err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to generate token", err)
 		return
@@ -136,6 +153,7 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		"room_name": dbRoom.Name,
 		"token":     token,
 		"host":      host,
+		"is_waiting": isWaiting,
 	})
 }
 
@@ -305,6 +323,53 @@ func (h *LivekitHandler) MuteAll(c *gin.Context) {
 
 	if err := h.lk.MuteAllParticipants(c.Request.Context(), body.RoomCode, body.MuteAudio, body.MuteVideo); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to mute participants", err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *LivekitHandler) AdmitParticipant(c *gin.Context) {
+	var body struct {
+		RoomCode string `json:"room_code"`
+		Identity string `json:"identity"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	// Check permissions (Admin or Creator)
+	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
+	if err != nil {
+		logAndRespondError(c, http.StatusNotFound, "room not found", err)
+		return
+	}
+
+	isCreator := room.CreatedByID == userID
+	isAdmin := role == string(dUser.RoleAdmin)
+
+	if !isCreator && !isAdmin {
+		respondError(c, http.StatusForbidden, "you are not authorized to admit participants")
+		return
+	}
+
+	// Update Participant Permissions (Full access)
+	canPub := true
+	canSub := true
+	canData := true
+	permission := &livekit.ParticipantPermission{
+		CanPublish:     &canPub,
+		CanSubscribe:   &canSub,
+		CanPublishData: &canData,
+	}
+	metadata := `{"status":"active"}`
+
+	if err := h.lk.UpdateParticipant(c.Request.Context(), body.RoomCode, body.Identity, metadata, permission); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to admit participant", err)
 		return
 	}
 

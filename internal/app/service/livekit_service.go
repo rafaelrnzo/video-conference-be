@@ -13,11 +13,12 @@ import (
 )
 
 type LivekitService interface {
-	GenerateUserToken(ctx context.Context, room, identity string) (string, string, error)
+	GenerateUserToken(ctx context.Context, room, identity string, isWaiting bool) (string, string, error)
 	CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error)
 	ListRooms(ctx context.Context) ([]*livekit.Room, error)
 	DeleteRoom(ctx context.Context, name string) error
 	ListParticipants(ctx context.Context, room string) ([]*livekit.ParticipantInfo, error)
+	UpdateParticipant(ctx context.Context, room, identity string, metadata string, permission *livekit.ParticipantPermission) error
 	RemoveParticipant(ctx context.Context, room, identity string) error
 	StartRoomRecording(ctx context.Context, roomName, filenamePrefix string) (*livekit.EgressInfo, error)
 	StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
@@ -36,8 +37,14 @@ func NewLivekitService(client *utility.LivekitClient) LivekitService {
 	return &livekitService{client: client}
 }
 
-func (s *livekitService) GenerateUserToken(ctx context.Context, room, identity string) (string, string, error) {
-	return s.client.GenerateToken(room, identity, 2*time.Hour)
+func (s *livekitService) GenerateUserToken(ctx context.Context, room, identity string, isWaiting bool) (string, string, error) {
+	canPublish := !isWaiting
+	canSubscribe := !isWaiting
+	metadata := `{"status":"active"}`
+	if isWaiting {
+		metadata = `{"status":"waiting"}`
+	}
+	return s.client.GenerateToken(room, identity, 2*time.Hour, canPublish, canSubscribe, metadata)
 }
 
 func (s *livekitService) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error) {
@@ -54,6 +61,10 @@ func (s *livekitService) DeleteRoom(ctx context.Context, name string) error {
 
 func (s *livekitService) ListParticipants(ctx context.Context, room string) ([]*livekit.ParticipantInfo, error) {
 	return s.client.ListParticipants(ctx, room)
+}
+
+func (s *livekitService) UpdateParticipant(ctx context.Context, room, identity string, metadata string, permission *livekit.ParticipantPermission) error {
+	return s.client.UpdateParticipant(ctx, room, identity, metadata, permission)
 }
 
 func (s *livekitService) RemoveParticipant(ctx context.Context, room, identity string) error {
