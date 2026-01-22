@@ -18,10 +18,11 @@ type AuthService interface {
 
 type authService struct {
 	userRepo dUser.Repository
+	roleSvc  RoleService
 }
 
-func NewAuthService(userRepo dUser.Repository) AuthService {
-	return &authService{userRepo: userRepo}
+func NewAuthService(userRepo dUser.Repository, roleSvc RoleService) AuthService {
+	return &authService{userRepo: userRepo, roleSvc: roleSvc}
 }
 
 func (s *authService) Register(ctx context.Context, username, password string) (*dUser.User, error) {
@@ -29,10 +30,18 @@ func (s *authService) Register(ctx context.Context, username, password string) (
 	if err != nil {
 		return nil, err
 	}
+
+	roleName := "user"
+	roleEntity, err := s.roleSvc.CreateRole(roleName)
+	if err != nil {
+		return nil, err
+	}
+
 	u := &dUser.User{
 		Username:     username,
 		PasswordHash: string(hashedPassword),
-		Role:         dUser.RoleUser,
+		RoleID:       roleEntity.ID,
+		Role:         *roleEntity,
 	}
 	if err := s.userRepo.Create(ctx, u); err != nil {
 		return nil, err
@@ -48,7 +57,7 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
 		return "", nil, errors.New("invalid credentials")
 	}
-	token, err := utility.GenerateJWT(u.Username, u.Role, 24*time.Hour)
+	token, err := utility.GenerateJWT(u.Username, u.Role.Name, 24*time.Hour)
 	if err != nil {
 		return "", nil, err
 	}

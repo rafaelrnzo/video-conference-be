@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"video-conference-be/internal/domain/group"
+	"video-conference-be/internal/domain/role"
 	"video-conference-be/internal/domain/room"
 	"video-conference-be/internal/domain/user"
 	"video-conference-be/pkg/utility"
@@ -22,6 +23,8 @@ func main() {
 
 	log.Println("Starting database seeder...")
 
+
+	seedRoles(db)
 	seedUsers(db)
 	seedGroups(db)
 	seedRooms(db)
@@ -29,26 +32,54 @@ func main() {
 	log.Println("Database seeding completed successfully.")
 }
 
+func seedRoles(db *gorm.DB) {
+	log.Println("Seeding roles...")
+	roles := []string{"admin", "user"}
+
+	for _, r := range roles {
+		var roleDef role.Role
+		if err := db.Where("name = ?", r).First(&roleDef).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Create
+				newRole := role.Role{Name: r}
+				if err := db.Create(&newRole).Error; err != nil {
+					log.Printf("Failed to create role %s: %v\n", r, err)
+				} else {
+					log.Printf("Role %s created.\n", r)
+				}
+			} else {
+				log.Printf("Error checking role %s: %v\n", r, err)
+			}
+		} else {
+			log.Printf("Role %s already exists.\n", r)
+		}
+	}
+}
+
 func seedUsers(db *gorm.DB) {
 	log.Println("Seeding users...")
 
 	password, _ := utility.HashPassword("password123")
 	
+	var adminRole, userRole role.Role
+	db.Where("name = ?", "admin").First(&adminRole)
+	db.Where("name = ?", "user").First(&userRole)
+
 	users := []user.User{
 		{
 			Username:     "admin",
 			PasswordHash: password,
-			Role:         user.RoleAdmin,
+			RoleID:       adminRole.ID,
 		},
 		{
 			Username:     "user1",
 			PasswordHash: password,
-			Role:         user.RoleUser,
+			RoleID:       userRole.ID,
 		},
 		{
 			Username:     "user2",
 			PasswordHash: password,
-			Role:         user.RoleUser,
+			RoleID:       userRole.ID,
 		},
 	}
 

@@ -60,24 +60,3 @@ func safePrefix(s string, n int) string {
 	}
 	return s[:n]
 }
-
-func AdminOnly() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		roleVal, exists := c.Get("role")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "role missing"})
-			return
-		}
-		roleStr, ok := roleVal.(string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "invalid role type"})
-			return
-		}
-
-		if dUser.Role(roleStr) != dUser.RoleAdmin {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
-			return
-		}
-		c.Next()
-	}
-}

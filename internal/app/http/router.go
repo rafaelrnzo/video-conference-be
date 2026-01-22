@@ -3,6 +3,7 @@ package http
 import (
 	"video-conference-be/internal/app/repository"
 	"video-conference-be/internal/app/service"
+	"video-conference-be/internal/pkg/rbac"
 	"video-conference-be/pkg/utility"
 
 	"github.com/gin-contrib/cors"
@@ -29,14 +30,20 @@ func NewRouter() *gin.Engine {
 	groupRepo := repository.NewGroupRepository()
 	recordRepo := repository.NewRecordRepository()
 
-	authSvc := service.NewAuthService(userRepo)
+	// Move roleSvc init up
+	roleRepo := repository.NewRoleRepository()
+	roleSvc := service.NewRoleService(roleRepo)
+
+	authSvc := service.NewAuthService(userRepo, roleSvc)
 	groupSvc := service.NewGroupService(groupRepo, userRepo)
 
 	lkClient := utility.NewLivekitClient()
 	lkSvc := service.NewLivekitService(lkClient)
 
 	roomSvc := service.NewRoomService()
-	userSvc := service.NewUserService()
+	// roleRepo/roleSvc moved up
+	
+	userSvc := service.NewUserService(roleSvc)
 	recordSvc := service.NewRecordService(recordRepo)
 
 	authHandler := NewAuthHandler(authSvc)
@@ -75,48 +82,61 @@ func NewRouter() *gin.Engine {
 
 	// === ADMIN ROUTES (/admin/...) ===
 	adminGroup := r.Group("/admin")
-	adminGroup.Use(JWTAuthMiddleware(), AdminOnly())
+	adminGroup.Use(JWTAuthMiddleware()) 
+	// Removed AdminOnly(), using granular RBAC middleware below
 	{
 		// GROUP MANAGEMENT
-		adminGroup.GET("/groups", groupHandler.ListGroups)
-		adminGroup.GET("/groups/:id", groupHandler.GetGroup)
-		adminGroup.POST("/groups", groupHandler.CreateGroup)
-		adminGroup.PATCH("/groups/:id", groupHandler.UpdateGroup)
-		adminGroup.DELETE("/groups/:id", groupHandler.DeleteGroup)
-		adminGroup.POST("/groups/:id/members", groupHandler.AddMember)
-		adminGroup.DELETE("/groups/:id/members/:userId", groupHandler.RemoveMember)
+		adminGroup.GET("/groups", rbac.Middleware("groups", "read"), groupHandler.ListGroups)
+		adminGroup.GET("/groups/:id", rbac.Middleware("groups", "read"), groupHandler.GetGroup)
+		adminGroup.POST("/groups", rbac.Middleware("groups", "manage"), groupHandler.CreateGroup)
+		adminGroup.PATCH("/groups/:id", rbac.Middleware("groups", "manage"), groupHandler.UpdateGroup)
+		adminGroup.DELETE("/groups/:id", rbac.Middleware("groups", "manage"), groupHandler.DeleteGroup)
+		adminGroup.POST("/groups/:id/members", rbac.Middleware("groups", "manage"), groupHandler.AddMember)
+		adminGroup.DELETE("/groups/:id/members/:userId", rbac.Middleware("groups", "manage"), groupHandler.RemoveMember)
 
-		// LIVEKIT ROOMS
-		adminGroup.GET("/livekit/rooms", lkHandler.ListActiveRooms)
-		adminGroup.DELETE("/livekit/rooms/:name", lkHandler.DeleteActiveRoom)
-		adminGroup.GET("/livekit/participants", lkHandler.ListParticipants)
-		adminGroup.DELETE("/livekit/participants", lkHandler.RemoveParticipant)
-		adminGroup.POST("/livekit/rooms/mute-all", lkHandler.MuteAll)
-		adminGroup.POST("/livekit/rooms/permissions", lkHandler.UpdateRoomPermissions)
+		// LIVEKIT ROOMS (Active)
+		adminGroup.GET("/livekit/rooms", rbac.Middleware("rooms", "read"), lkHandler.ListActiveRooms)
+		adminGroup.DELETE("/livekit/rooms/:name", rbac.Middleware("rooms", "manage"), lkHandler.DeleteActiveRoom)
+		adminGroup.GET("/livekit/participants", rbac.Middleware("rooms", "read"), lkHandler.ListParticipants)
+		adminGroup.DELETE("/livekit/participants", rbac.Middleware("rooms", "manage"), lkHandler.RemoveParticipant)
+		adminGroup.POST("/livekit/rooms/mute-all", rbac.Middleware("rooms", "manage"), lkHandler.MuteAll)
+		adminGroup.POST("/livekit/rooms/permissions", rbac.Middleware("rooms", "manage"), lkHandler.UpdateRoomPermissions)
 
 		// RECORDINGS
-		adminGroup.POST("/livekit/recordings/start", recordingHandler.StartRecording)
-		adminGroup.POST("/livekit/recordings/stop", recordingHandler.StopRecording)
-		adminGroup.POST("/recordings/sync", recordingHandler.Sync)
-		adminGroup.GET("/recordings", recordingHandler.ListRecords)
-		adminGroup.PATCH("/recordings/:id", recordingHandler.UpdateRecordName)
-		adminGroup.DELETE("/recordings/:id", recordingHandler.DeleteRecord)
+		adminGroup.POST("/livekit/recordings/start", rbac.Middleware("recordings", "manage"), recordingHandler.StartRecording)
+		adminGroup.POST("/livekit/recordings/stop", rbac.Middleware("recordings", "manage"), recordingHandler.StopRecording)
+		adminGroup.POST("/recordings/sync", rbac.Middleware("recordings", "manage"), recordingHandler.Sync)
+		adminGroup.GET("/recordings", rbac.Middleware("recordings", "read"), recordingHandler.ListRecords)
+		adminGroup.PATCH("/recordings/:id", rbac.Middleware("recordings", "manage"), recordingHandler.UpdateRecordName)
+		adminGroup.DELETE("/recordings/:id", rbac.Middleware("recordings", "manage"), recordingHandler.DeleteRecord)
 
 		// USERS
-		adminGroup.GET("/users", userHandler.ListUsers)
-		adminGroup.POST("/users", userHandler.CreateUser)
-		adminGroup.PATCH("/users/:id", userHandler.UpdateUserRole)
-		adminGroup.DELETE("/users/:id", userHandler.DeleteUser)
+		adminGroup.GET("/users", rbac.Middleware("users", "read"), userHandler.ListUsers)
+		adminGroup.POST("/users", rbac.Middleware("users", "manage"), userHandler.CreateUser)
+		adminGroup.PATCH("/users/:id", rbac.Middleware("users", "manage"), userHandler.UpdateUserRole)
+		adminGroup.DELETE("/users/:id", rbac.Middleware("users", "manage"), userHandler.DeleteUser)
 
 		// STATIC ROOMS (ADMIN MANAGE)
-		adminGroup.GET("/rooms", roomHandler.ListRooms)
-		adminGroup.POST("/rooms", roomHandler.CreateRoom)
-		adminGroup.PATCH("/rooms/:id", roomHandler.UpdateRoom)
-		adminGroup.DELETE("/rooms/:id", roomHandler.DeleteRoom)
+		// Assuming static rooms management requires 'manage' or specific 'create'/'delete' permissions if defined
+		adminGroup.GET("/rooms", rbac.Middleware("rooms", "read"), roomHandler.ListRooms)
+		adminGroup.POST("/rooms", rbac.Middleware("rooms", "create"), roomHandler.CreateRoom)
+		adminGroup.PATCH("/rooms/:id", rbac.Middleware("rooms", "manage"), roomHandler.UpdateRoom)
+		adminGroup.DELETE("/rooms/:id", rbac.Middleware("rooms", "delete"), roomHandler.DeleteRoom)
 
 		// POLLS
-		adminGroup.POST("/polls", pollHandler.SavePoll)
+		// Polls are part of a room activity, let's assume 'rooms:manage' for now or add a poll permission.
+		// SystemPermissions didn't explicit polls, usually room admins manage polls.
+		adminGroup.POST("/polls", rbac.Middleware("rooms", "manage"), pollHandler.SavePoll)
+        
+        // RBAC (ROLES)
+		roleHandler := NewRoleHandler(roleSvc)
+        adminGroup.GET("/roles", rbac.Middleware("roles", "manage"), roleHandler.ListRoles)
+        adminGroup.POST("/roles", rbac.Middleware("roles", "manage"), roleHandler.CreateRole)
+        adminGroup.GET("/roles/:role/permissions", rbac.Middleware("roles", "manage"), roleHandler.GetRolePermissions)
+        adminGroup.POST("/roles/permissions", rbac.Middleware("roles", "manage"), roleHandler.AddPermission)
+        adminGroup.DELETE("/roles/permissions", rbac.Middleware("roles", "manage"), roleHandler.RemovePermission)
+        adminGroup.GET("/system/permissions", rbac.Middleware("roles", "manage"), roleHandler.ListSystemPermissions)
 	}
-
+    
 	return r
 }

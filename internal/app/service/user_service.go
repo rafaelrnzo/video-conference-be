@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"video-conference-be/internal/domain/user"
+	"video-conference-be/internal/pkg/rbac"
 	"video-conference-be/pkg/utility"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,16 +17,19 @@ type UserService interface {
 	DeleteUser(id uint) error
 }
 
-type userService struct{}
 
-func NewUserService() UserService {
-	return &userService{}
+type userService struct {
+	roleSvc RoleService
+}
+
+func NewUserService(roleSvc RoleService) UserService {
+	return &userService{roleSvc: roleSvc}
 }
 
 func (s *userService) ListUsers() ([]user.User, error) {
 	var users []user.User
 	if err := utility.DB.
-		Select("id", "username", "role", "created_at", "updated_at").
+		Preload("Role").
 		Order("id ASC").
 		Find(&users).Error; err != nil {
 		return nil, err
@@ -38,12 +42,16 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 		return nil, errors.New("username and password are required")
 	}
 
-	var role user.Role
-	switch user.Role(roleStr) {
-	case user.RoleAdmin:
-		role = user.RoleAdmin
-	default:
-		role = user.RoleUser
+	// Dynamic role: just accept the string.
+	roleVal := roleStr
+	if roleVal == "" {
+		roleVal = "user"
+	}
+
+	// Ensure role exists in DB and get it
+	roleEntity, err := s.roleSvc.CreateRole(roleVal)
+	if err != nil {
+		return nil, err
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -54,12 +62,16 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 	u := &user.User{
 		Username:     username,
 		PasswordHash: string(hashed),
-		Role:         role,
+		RoleID:       roleEntity.ID,
+		Role:         *roleEntity,
 	}
 
 	if err := utility.DB.Create(u).Error; err != nil {
 		return nil, err
 	}
+
+	// Sync with Casbin
+	_, _ = rbac.Enforcer.AddGroupingPolicy(u.Username, u.Role.Name)
 
 	u.PasswordHash = "" // safety
 	return u, nil
@@ -70,27 +82,45 @@ func (s *userService) UpdateUserRole(id uint, roleStr string) (*user.User, error
 		return nil, errors.New("role is required")
 	}
 
-	var u user.User
-	if err := utility.DB.First(&u, id).Error; err != nil {
+	// Ensure role exists in DB
+	roleEntity, err := s.roleSvc.CreateRole(roleStr)
+	if err != nil {
 		return nil, err
 	}
 
-	switch user.Role(roleStr) {
-	case user.RoleAdmin:
-		u.Role = user.RoleAdmin
-	default:
-		u.Role = user.RoleUser
+	var u user.User
+	// Preload role to get old role name if needed
+	if err := utility.DB.Preload("Role").First(&u, id).Error; err != nil {
+		return nil, err
 	}
+
+	oldRole := u.Role.Name
+	newRole := roleStr
+
+	u.RoleID = roleEntity.ID
+	u.Role = *roleEntity
 
 	if err := utility.DB.Save(&u).Error; err != nil {
 		return nil, err
 	}
+
+	// Sync with Casbin
+	if oldRole != "" {
+		_, _ = rbac.Enforcer.RemoveGroupingPolicy(u.Username, oldRole)
+	}
+	_, _ = rbac.Enforcer.AddGroupingPolicy(u.Username, newRole)
 
 	u.PasswordHash = ""
 	return &u, nil
 }
 
 func (s *userService) DeleteUser(id uint) error {
+	var u user.User
+	if err := utility.DB.First(&u, id).Error; err == nil {
+		// Remove from Casbin
+		_, _ = rbac.Enforcer.RemoveFilteredGroupingPolicy(0, u.Username)
+	}
+
 	// Manually delete from group_members to avoid foreign key constraint errors
 	if err := utility.DB.Table("group_members").Where("user_id = ?", id).Delete(nil).Error; err != nil {
 		return err

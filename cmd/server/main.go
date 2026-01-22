@@ -6,6 +6,7 @@ import (
 	"video-conference-be/internal/domain/models"
 
 	"video-conference-be/internal/app/http"
+	"video-conference-be/internal/pkg/rbac"
 	"video-conference-be/pkg/utility"
 
 	"gorm.io/gorm"
@@ -22,6 +23,7 @@ func main() {
 	utility.InitDB()
 	utility.InitRedis()
 	autoMigrate(utility.DB)
+	rbac.InitEnforcer(utility.DB)
 
 	r := http.NewRouter()
 

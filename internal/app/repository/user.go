@@ -23,7 +23,7 @@ func (r *userGormRepo) Create(ctx context.Context, u *domain.User) error {
 
 func (r *userGormRepo) FindByUsername(ctx context.Context, username string) (*domain.User, error) {
 	var u domain.User
-	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&u).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Role").Where("username = ?", username).First(&u).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -31,7 +31,7 @@ func (r *userGormRepo) FindByUsername(ctx context.Context, username string) (*do
 
 func (r *userGormRepo) FindByID(ctx context.Context, id uint) (*domain.User, error) {
 	var u domain.User
-	if err := r.db.WithContext(ctx).First(&u, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Role").First(&u, id).Error; err != nil {
 		return nil, err
 	}
 	return &u, nil

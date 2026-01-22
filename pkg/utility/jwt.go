@@ -4,18 +4,16 @@ import (
 	"log"
 	"time"
 
-	"video-conference-be/internal/domain/user"
-
 	"github.com/golang-jwt/jwt"
 )
 
 type Claims struct {
 	Username string    `json:"username"`
-	Role     user.Role `json:"role"`
+	Role     string    `json:"role"`
 	jwt.StandardClaims
 }
 
-func GenerateJWT(username string, role user.Role, ttl time.Duration) (string, error) {
+func GenerateJWT(username string, role string, ttl time.Duration) (string, error) {
 	claims := &Claims{
 		Username: username,
 		Role:     role,
