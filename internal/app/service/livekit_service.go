@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type LivekitService interface {
 	IsUserOnline(ctx context.Context, identity string) (bool, string, error)
 	UpdateRoomMetadata(ctx context.Context, room string, metadata string) error
 	MuteAllParticipants(ctx context.Context, room string, muteAudio, muteVideo bool) error
+	MuteParticipant(ctx context.Context, room string, identity string, muteAudio, muteVideo bool) error
 }
 
 type livekitService struct {
@@ -126,6 +128,65 @@ func (s *livekitService) MuteAllParticipants(ctx context.Context, room string, m
 			if muteVideo && t.Type == livekit.TrackType_VIDEO {
 				_ = s.client.MutePublishedTrack(ctx, room, p.Identity, t.Sid, true)
 			}
+		}
+	}
+	return nil
+}
+
+func (s *livekitService) MuteParticipant(ctx context.Context, room string, identity string, muteAudio, muteVideo bool) error {
+	participants, err := s.client.ListParticipants(ctx, room)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range participants {
+		if p.Identity == identity {
+			// 1. Update Metadata to persist "Admin Mute" state
+			// We parse existing metadata to preserve other fields like "status"
+			var metaMap map[string]interface{}
+			if p.Metadata == "" {
+				metaMap = make(map[string]interface{})
+			} else {
+				if err := json.Unmarshal([]byte(p.Metadata), &metaMap); err != nil {
+					// If invalid JSON, start fresh (or log error, but safe to overwrite for now)
+					metaMap = make(map[string]interface{})
+				}
+			}
+
+			// Update fields
+			if muteAudio {
+				metaMap["admin_muted_audio"] = true
+			} else {
+				delete(metaMap, "admin_muted_audio") // Unmute = remove flag
+			}
+
+			if muteVideo {
+				metaMap["admin_muted_video"] = true
+			} else {
+				delete(metaMap, "admin_muted_video")
+			}
+
+			// Marshal back
+			newMetaJson, _ := json.Marshal(metaMap)
+			newMeta := string(newMetaJson)
+
+			// Update Participant with new Metadata
+			if err := s.client.UpdateParticipant(ctx, room, identity, newMeta, nil); err != nil {
+				return err
+			}
+
+			// 2. Perform actual Track Muting (Only if muting/locking)
+			if muteAudio || muteVideo {
+				for _, t := range p.Tracks {
+					if muteAudio && t.Type == livekit.TrackType_AUDIO {
+						_ = s.client.MutePublishedTrack(ctx, room, p.Identity, t.Sid, true)
+					}
+					if muteVideo && t.Type == livekit.TrackType_VIDEO {
+						_ = s.client.MutePublishedTrack(ctx, room, p.Identity, t.Sid, true)
+					}
+				}
+			}
+			break
 		}
 	}
 	return nil

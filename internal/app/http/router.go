@@ -28,8 +28,10 @@ func NewRouter() *gin.Engine {
 	userRepo := repository.NewUserRepository()
 	groupRepo := repository.NewGroupRepository()
 	recordRepo := repository.NewRecordRepository()
+    roleRepo := repository.NewRoleRepository()
 
-	authSvc := service.NewAuthService(userRepo)
+    roleSvc := service.NewRoleService(roleRepo)
+	authSvc := service.NewAuthService(userRepo, roleSvc)
 	groupSvc := service.NewGroupService(groupRepo, userRepo)
 
 	lkClient := utility.NewLivekitClient()
@@ -40,6 +42,7 @@ func NewRouter() *gin.Engine {
 	recordSvc := service.NewRecordService(recordRepo)
 
 	authHandler := NewAuthHandler(authSvc)
+    roleHandler := NewRoleHandler(roleSvc)
 	groupHandler := NewGroupHandler(groupSvc)
 	lkHandler := NewLivekitHandler(lkSvc, roomSvc, groupSvc)
 	roomHandler := NewRoomHandler(roomSvc)
@@ -58,6 +61,7 @@ func NewRouter() *gin.Engine {
 	r.GET("/public", authHandler.Public)
 	r.POST("/register", authHandler.Register)
 	r.POST("/login", authHandler.Login)
+    r.POST("/sso-login", authHandler.SSOLogin)
 	r.POST("/livekit/webhook", lkHandler.Webhook)
 
 	api := r.Group("/api")
@@ -92,6 +96,7 @@ func NewRouter() *gin.Engine {
 		adminGroup.GET("/livekit/participants", lkHandler.ListParticipants)
 		adminGroup.DELETE("/livekit/participants", lkHandler.RemoveParticipant)
 		adminGroup.POST("/livekit/rooms/mute-all", lkHandler.MuteAll)
+		adminGroup.POST("/livekit/participants/mute", lkHandler.MuteParticipant)
 		adminGroup.POST("/livekit/rooms/permissions", lkHandler.UpdateRoomPermissions)
 
 		// RECORDINGS
@@ -116,6 +121,9 @@ func NewRouter() *gin.Engine {
 
 		// POLLS
 		adminGroup.POST("/polls", pollHandler.SavePoll)
+        
+        // DYNAMIC ROLES
+        ConfigureRoleRoutes(adminGroup, roleHandler)
 	}
 
 	return r

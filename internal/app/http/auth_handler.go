@@ -2,7 +2,9 @@ package http
 
 import (
 	"net/http"
+	"time"
 	"video-conference-be/internal/app/service"
+	"video-conference-be/pkg/utility"
 
 	"github.com/gin-gonic/gin"
 )
@@ -57,9 +59,47 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"token":    token,
 		"username": u.Username,
-		"role":     u.Role,
+		"role":     u.Role, // This is now a *Role struct or similar
 		"user_id":  u.ID,
 	})
+}
+
+type ssoLoginReq struct {
+    Username string `json:"username"`
+    Email    string `json:"email"` // We might use email as unique identifier
+    // In a real app, we should verify an ID Token here!
+}
+
+func (h *AuthHandler) SSOLogin(c *gin.Context) {
+    var req ssoLoginReq
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+        return
+    }
+    
+    u, err := h.authService.SyncUserFromSSO(c.Request.Context(), req.Username, req.Email)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // Generate JWT for our app
+    roleName := "user"
+	if u.Role != nil {
+		roleName = u.Role.Name
+	}
+	token, err := utility.GenerateJWT(u.Username, roleName, 24*time.Hour) // Fixed: pass string
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+    
+    c.JSON(http.StatusOK, gin.H{
+        "token":    token,
+        "username": u.Username,
+        "role":     u.Role,
+        "user_id":  u.ID,
+    })
 }
 
 func (h *AuthHandler) Public(c *gin.Context) {

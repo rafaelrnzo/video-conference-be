@@ -37,7 +37,8 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		var u dUser.User
 		var userID uint
-		if err := utility.DB.Where("username = ?", claims.Username).First(&u).Error; err != nil {
+        // Preload Role and Permissions
+		if err := utility.DB.Preload("Role.Permissions").Where("username = ?", claims.Username).First(&u).Error; err != nil {
 			log.Printf("[JWT] WARNING: user with username=%s not found, user_id=0. err=%v\n", claims.Username, err)
 			userID = 0
 		} else {
@@ -49,6 +50,15 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		c.Set("user_id", userID)
 		c.Set("username", claims.Username)
 		c.Set("role", string(claims.Role))
+        
+        // Store permissions in context for CheckPermission
+        if u.Role != nil {
+             permMap := make(map[string]bool)
+             for _, p := range u.Role.Permissions {
+                 permMap[p.Key] = true
+             }
+             c.Set("permissions", permMap)
+        }
 
 		c.Next()
 	}
@@ -74,7 +84,7 @@ func AdminOnly() gin.HandlerFunc {
 			return
 		}
 
-		if dUser.Role(roleStr) != dUser.RoleAdmin {
+		if roleStr != "admin" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
 			return
 		}

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"video-conference-be/internal/domain/user"
+	"video-conference-be/internal/domain/role"
 	"video-conference-be/pkg/utility"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,7 +17,14 @@ type UserService interface {
 	DeleteUser(id uint) error
 }
 
-type userService struct{}
+type userService struct {
+    // We might need RoleService here if we want to look up roles by name easily
+    // Or just use DB directly? Better to use RoleService or Repo.
+    // However, clean architecture says Service shouldn't depend on another Service ideally, but pragmatic approach allows it.
+    // Or better, RoleRepo. 
+    // Let's inject generic DB access via utility.DB or similar if that's the pattern used.
+    // The previous code used utility.DB directly. 
+}
 
 func NewUserService() UserService {
 	return &userService{}
@@ -38,13 +46,19 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 		return nil, errors.New("username and password are required")
 	}
 
-	var role user.Role
-	switch user.Role(roleStr) {
-	case user.RoleAdmin:
-		role = user.RoleAdmin
-	default:
-		role = user.RoleUser
-	}
+    // Resolve Role
+    var r role.Role
+    // Default to "user" if empty, or error?
+    targetRole := roleStr
+    if targetRole == "" {
+        targetRole = "user"
+    }
+    
+    // We need to fetch the role from DB
+    // Import "video-conference-be/internal/domain/role" is needed in file
+    if err := utility.DB.Where("name = ?", targetRole).First(&r).Error; err != nil {
+        return nil, errors.New("role not found: " + targetRole)
+    }
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -54,7 +68,7 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 	u := &user.User{
 		Username:     username,
 		PasswordHash: string(hashed),
-		Role:         role,
+		RoleID:       r.ID,
 	}
 
 	if err := utility.DB.Create(u).Error; err != nil {
@@ -74,17 +88,18 @@ func (s *userService) UpdateUserRole(id uint, roleStr string) (*user.User, error
 	if err := utility.DB.First(&u, id).Error; err != nil {
 		return nil, err
 	}
+    
+    var r role.Role
+    if err := utility.DB.Where("name = ?", roleStr).First(&r).Error; err != nil {
+        return nil, errors.New("role not found: " + roleStr)
+    }
 
-	switch user.Role(roleStr) {
-	case user.RoleAdmin:
-		u.Role = user.RoleAdmin
-	default:
-		u.Role = user.RoleUser
-	}
-
+    u.RoleID = r.ID
 	if err := utility.DB.Save(&u).Error; err != nil {
 		return nil, err
 	}
+    // reload with role
+    utility.DB.Preload("Role").First(&u, u.ID)
 
 	u.PasswordHash = ""
 	return &u, nil

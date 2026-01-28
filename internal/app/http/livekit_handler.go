@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"video-conference-be/internal/app/service"
-	dUser "video-conference-be/internal/domain/user"
+	//dUser "video-conference-be/internal/domain/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/livekit/protocol/livekit"
@@ -128,8 +128,9 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	// Check if user is Admin or Creator (always allowed instantly)
 	// Creator check could be: dbRoom.CreatedByID == userID
 	// Admin check: c.GetString("role") == "admin"
+	// Admin check: c.GetString("role") == "admin"
 	role := c.GetString("role")
-	isAdmin := role == string(dUser.RoleAdmin)
+	isAdmin := role == "admin"
 	isCreator := dbRoom.CreatedByID == userID
 
 	if !isAdmin && !isCreator {
@@ -148,11 +149,11 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	_ = h.lk.SetUserOnline(c.Request.Context(), userID, identity, dbRoom.RoomCode, 2*time.Minute)
 
 	c.JSON(http.StatusOK, gin.H{
-		"identity":  identity,
-		"room":      dbRoom.RoomCode,
-		"room_name": dbRoom.Name,
-		"token":     token,
-		"host":      host,
+		"identity":   identity,
+		"room":       dbRoom.RoomCode,
+		"room_name":  dbRoom.Name,
+		"token":      token,
+		"host":       host,
 		"is_waiting": isWaiting,
 	})
 }
@@ -291,7 +292,7 @@ func (h *LivekitHandler) KickParticipant(c *gin.Context) {
 
 	// 2. Check Permissions: Only Creator or Admin can kick
 	isCreator := room.CreatedByID == userID
-	isAdmin := role == string(dUser.RoleAdmin)
+	isAdmin := role == "admin"
 
 	if !isCreator && !isAdmin {
 		respondError(c, http.StatusForbidden, "you are not authorized to kick participants")
@@ -350,7 +351,7 @@ func (h *LivekitHandler) AdmitParticipant(c *gin.Context) {
 	}
 
 	isCreator := room.CreatedByID == userID
-	isAdmin := role == string(dUser.RoleAdmin)
+	isAdmin := role == "admin"
 
 	if !isCreator && !isAdmin {
 		respondError(c, http.StatusForbidden, "you are not authorized to admit participants")
@@ -362,9 +363,9 @@ func (h *LivekitHandler) AdmitParticipant(c *gin.Context) {
 	canSub := true
 	canData := true
 	permission := &livekit.ParticipantPermission{
-		CanPublish:     &canPub,
-		CanSubscribe:   &canSub,
-		CanPublishData: &canData,
+		CanPublish:     canPub,
+		CanSubscribe:   canSub,
+		CanPublishData: canData,
 	}
 	metadata := `{"status":"active"}`
 
@@ -388,6 +389,51 @@ func (h *LivekitHandler) UpdateRoomPermissions(c *gin.Context) {
 
 	if err := h.lk.UpdateRoomMetadata(c.Request.Context(), body.RoomCode, body.Metadata); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to update room metadata", err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *LivekitHandler) MuteParticipant(c *gin.Context) {
+	var body struct {
+		RoomCode  string `json:"room_code"`
+		Identity  string `json:"identity"`
+		MuteAudio bool   `json:"mute_audio"`
+		MuteVideo bool   `json:"mute_video"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if body.RoomCode == "" || body.Identity == "" {
+		respondError(c, http.StatusBadRequest, "room_code and identity are required")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	// 1. Get Room to check ownership
+	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
+	if err != nil {
+		logAndRespondError(c, http.StatusNotFound, "room not found", err)
+		return
+	}
+
+	// 2. Check Permissions: Only Creator or Admin can mute others
+	isCreator := room.CreatedByID == userID
+	isAdmin := role == "admin"
+
+	if !isCreator && !isAdmin {
+		respondError(c, http.StatusForbidden, "you are not authorized to mute participants")
+		return
+	}
+
+	// 3. Execute Mute
+	if err := h.lk.MuteParticipant(c.Request.Context(), body.RoomCode, body.Identity, body.MuteAudio, body.MuteVideo); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to mute participant", err)
 		return
 	}
 
