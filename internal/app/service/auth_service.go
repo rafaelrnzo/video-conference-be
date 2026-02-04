@@ -13,8 +13,9 @@ import (
 
 type AuthService interface {
 	Register(ctx context.Context, username, password string) (*dUser.User, error)
-	Login(ctx context.Context, username, password string) (string, *dUser.User, error)
-	SyncUserFromSSO(ctx context.Context, username, email string) (*dUser.User, error)
+    Login(ctx context.Context, username, password string) (string, *dUser.User, error)
+    SyncUserFromSSO(ctx context.Context, username, email string) (*dUser.User, error)
+    GetProfile(ctx context.Context, username string) (*dUser.User, error)
 }
 
 type authService struct {
@@ -82,4 +83,8 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 		return "", nil, err
 	}
 	return token, u, nil
+}
+
+func (s *authService) GetProfile(ctx context.Context, username string) (*dUser.User, error) {
+    return s.userRepo.FindByUsername(ctx, username)
 }

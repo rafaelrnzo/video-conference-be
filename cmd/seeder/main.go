@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
+    "video-conference-be/internal/app/repository"
+    "video-conference-be/internal/app/service"
 	"video-conference-be/internal/domain/group"
 	"video-conference-be/internal/domain/room"
 	"video-conference-be/internal/domain/user"
@@ -22,6 +25,19 @@ func main() {
 
 	log.Println("Starting database seeder...")
 
+    // Initialize Roles & Permissions
+    roleRepo := repository.NewRoleRepository()
+    roleSvc := service.NewRoleService(roleRepo)
+    
+    // We need a context
+    ctx := context.Background()
+    
+    if err := roleSvc.InitDefaultRoles(ctx); err != nil {
+        log.Printf("Failed to init default roles: %v\n", err)
+    } else {
+        log.Println("Default roles and permissions initialized.")
+    }
+
 	seedUsers(db)
 	seedGroups(db)
 	seedRooms(db)
@@ -33,22 +49,30 @@ func seedUsers(db *gorm.DB) {
 	log.Println("Seeding users...")
 
 	password, _ := utility.HashPassword("password123")
-	
+	    
+    // We need to look up the IDs from the roles table.
+    var rAdmin, rUser struct { ID uint } 
+    // We can use the Role model or just a quick struct execution
+    // But since we have imports, let's just query.
+    
+    db.Table("roles").Where("name = ?", "admin").Select("id").Scan(&rAdmin)
+    db.Table("roles").Where("name = ?", "user").Select("id").Scan(&rUser)
+    
 	users := []user.User{
 		{
 			Username:     "admin",
 			PasswordHash: password,
-			Role:         user.RoleAdmin,
+			RoleID:       rAdmin.ID,
 		},
 		{
 			Username:     "user1",
 			PasswordHash: password,
-			Role:         user.RoleUser,
+			RoleID:       rUser.ID,
 		},
 		{
 			Username:     "user2",
 			PasswordHash: password,
-			Role:         user.RoleUser,
+			RoleID:       rUser.ID,
 		},
 	}
 
@@ -65,7 +89,14 @@ func seedUsers(db *gorm.DB) {
 				log.Printf("Error checking user %s: %v\n", u.Username, err)
 			}
 		} else {
-			log.Printf("User %s already exists.\n", u.Username)
+            // Update role if exists? Maybe useful for fixing existing bad data
+             if existing.RoleID == 0 {
+                  existing.RoleID = u.RoleID
+                  db.Save(&existing)
+                  log.Printf("Updated role for user %s\n", u.Username)
+             } else {
+			      log.Printf("User %s already exists.\n", u.Username)
+             }
 		}
 	}
 }

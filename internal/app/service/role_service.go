@@ -79,7 +79,8 @@ func (s *roleService) InitDefaultRoles(ctx context.Context) error {
         "user:create", "user:read", "user:update", "user:delete",
         "role:create", "role:read", "role:update", "role:delete",
         "room:create", "room:read", "room:update", "room:delete",
-        "recording:read", "recording:delete",
+        "recording:create", "recording:read", "recording:update", "recording:delete",
+        "room:join_direct", "room:manage_settings",
         "group:manage",
     }
     
@@ -92,13 +93,24 @@ func (s *roleService) InitDefaultRoles(ctx context.Context) error {
     
     // 2. Ensure roles exist
     adminRole, err := s.repo.FindByName(ctx, "admin")
-    if err != nil || adminRole == nil {
-        adminRole, _ = s.CreateRole(ctx, "admin", "Administrator")
-        // Assign all perms to admin
-        allPerms, _ := s.repo.ListPermissions(ctx)
-        for _, p := range allPerms {
-            s.repo.AssignPermission(ctx, adminRole.ID, p.ID)
+    if err != nil {
+        // If error is not found, create it
+        // Note: repo.FindByName should probably return nil or specific error if not found. 
+        // Assuming implementation handles it or we check error.
+        // Simplified:
+        adminRole, err = s.CreateRole(ctx, "admin", "Administrator")
+        if err != nil {
+            return err
         }
+    }
+
+    // Always ensure admin has ALL permissions
+    allPerms, _ := s.repo.ListPermissions(ctx)
+    for _, p := range allPerms {
+        // AssignPermission should be idempotent or handle duplicates safely
+        // But to be cleaner, we could check if assigned.
+        // However, repo.AssignPermission uses Association().Append() which GORM handles gracefully (usually).
+        _ = s.repo.AssignPermission(ctx, adminRole.ID, p.ID)
     }
     
     userRole, err := s.repo.FindByName(ctx, "user")

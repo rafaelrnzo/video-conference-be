@@ -12,14 +12,14 @@ func ConfigureRoleRoutes(r *gin.RouterGroup, handler *RoleHandler) {
 	// For now assuming the parent group has AdminOnly or we add specific perms here.
 
 	// For specific endpoints:
-	roles.GET("", CheckPermission("role:read"), handler.ListRoles)
-	roles.POST("", CheckPermission("role:create"), handler.CreateRole)
-	roles.PATCH("/:id", CheckPermission("role:update"), handler.UpdateRole)
-	roles.DELETE("/:id", CheckPermission("role:delete"), handler.DeleteRole)
+	roles.GET("", RequirePermission("role:read"), handler.ListRoles)
+	roles.POST("", RequirePermission("role:create"), handler.CreateRole)
+	roles.PATCH("/:id", RequirePermission("role:update"), handler.UpdateRole)
+	roles.DELETE("/:id", RequirePermission("role:delete"), handler.DeleteRole)
 
-	roles.POST("/:id/permissions", CheckPermission("role:update"), handler.AddPermission)
-	roles.DELETE("/:id/permissions/:permID", CheckPermission("role:update"), handler.RemovePermission)
+	roles.POST("/:id/permissions", RequirePermission("role:update"), handler.AssignPermission)
+	roles.DELETE("/:id/permissions/:permID", RequirePermission("role:update"), handler.RevokePermission)
 
-	roles.GET("/permissions", CheckPermission("role:read"), handler.ListPermissions)
-	roles.POST("/init-defaults", CheckPermission("role:update"), handler.InitDefaults)
+	roles.GET("/permissions", RequirePermission("role:read"), handler.ListPermissions)
+	roles.POST("/init-defaults", RequirePermission("role:update"), handler.InitDefaults)
 }

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -67,6 +68,14 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
+	identity := c.GetString("username")
+	
+	// Check if banned
+	if len(dbRoom.BannedUsers) > 0 && stringInSlice(identity, dbRoom.BannedUsers) {
+		respondError(c, http.StatusForbidden, "you banned from this room")
+		return
+	}
+
 	now := time.Now()
 	if now.Before(dbRoom.StartDate) {
 		msg := fmt.Sprintf("Meeting hasn't started yet. Starts at: %s", dbRoom.StartDate.Format(time.RFC1123))
@@ -79,7 +88,6 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
-	identity := c.GetString("username")
 	userID := c.GetUint("user_id")
 
 	isOnline, onlineRoom, err := h.lk.IsUserOnline(c.Request.Context(), identity)
@@ -133,10 +141,39 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	isAdmin := role == "admin"
 	isCreator := dbRoom.CreatedByID == userID
 
+
+	// 1. Fetch live room info to check metadata (for dynamic Waiting Room toggle)
+	// We use ListRooms filtered by name because GetRoom isn't always direct in some SDK versions, 
+	// or we just want to be safe.
+	liveRooms, err := h.lk.ListRooms(c.Request.Context())
+	waitingRoomEnabled := true // Default to true for Public Rooms (as per existing logic)
+
+	if err == nil {
+		for _, r := range liveRooms {
+			if r.Name == dbRoom.RoomCode {
+				// Parse metadata
+				if r.Metadata != "" {
+					var metaMap map[string]interface{}
+					if json.Unmarshal([]byte(r.Metadata), &metaMap) == nil {
+						if val, ok := metaMap["waiting_room_enabled"]; ok {
+							if boolVal, ok := val.(bool); ok {
+								waitingRoomEnabled = boolVal
+							}
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
 	if !isAdmin && !isCreator {
 		// If Public Room (No Group, No Assignments) -> Waiting Room
 		if (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0 {
-			isWaiting = true
+			// Only enable if the toggle allows it
+			if waitingRoomEnabled {
+				isWaiting = true
+			}
 		}
 	}
 
@@ -434,6 +471,80 @@ func (h *LivekitHandler) MuteParticipant(c *gin.Context) {
 	// 3. Execute Mute
 	if err := h.lk.MuteParticipant(c.Request.Context(), body.RoomCode, body.Identity, body.MuteAudio, body.MuteVideo); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to mute participant", err)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func (h *LivekitHandler) BanParticipant(c *gin.Context) {
+	var body struct {
+		RoomCode string `json:"room_code"`
+		Identity string `json:"identity"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
+	if err != nil {
+		logAndRespondError(c, http.StatusNotFound, "room not found", err)
+		return
+	}
+
+	isCreator := room.CreatedByID == userID
+	isAdmin := role == "admin"
+
+	if !isCreator && !isAdmin {
+		respondError(c, http.StatusForbidden, "not authorized")
+		return
+	}
+
+	if err := h.roomSvc.BanUser(body.RoomCode, body.Identity); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to ban user", err)
+		return
+	}
+
+	// Kick from current session
+	_ = h.lk.RemoveParticipant(c.Request.Context(), body.RoomCode, body.Identity)
+	_ = h.lk.SetUserOffline(c.Request.Context(), body.Identity)
+
+	c.Status(http.StatusOK)
+}
+
+func (h *LivekitHandler) UnbanParticipant(c *gin.Context) {
+	var body struct {
+		RoomCode string `json:"room_code"`
+		Identity string `json:"identity"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
+	if err != nil {
+		logAndRespondError(c, http.StatusNotFound, "room not found", err)
+		return
+	}
+
+	isCreator := room.CreatedByID == userID
+	isAdmin := role == "admin"
+
+	if !isCreator && !isAdmin {
+		respondError(c, http.StatusForbidden, "not authorized")
+		return
+	}
+
+	if err := h.roomSvc.UnbanUser(body.RoomCode, body.Identity); err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to unban user", err)
 		return
 	}
 

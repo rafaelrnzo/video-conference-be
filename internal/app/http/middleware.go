@@ -91,3 +91,33 @@ func AdminOnly() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func RequirePermission(perm string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Admins pass all checks
+        roleVal, _ := c.Get("role")
+        if roleStr, ok := roleVal.(string); ok && roleStr == "admin" {
+            c.Next()
+            return
+        }
+
+        permVal, exists := c.Get("permissions")
+        if !exists {
+            c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permissions missing"})
+            return
+        }
+        
+        permMap, ok := permVal.(map[string]bool)
+        if !ok {
+            c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid permissions format"})
+            return
+        }
+        
+        if !permMap[perm] {
+            c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing permission: " + perm})
+            return
+        }
+        
+        c.Next()
+    }
+}

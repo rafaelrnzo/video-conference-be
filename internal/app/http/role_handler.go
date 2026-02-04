@@ -82,7 +82,7 @@ type permAssignReq struct {
     PermissionID uint `json:"permission_id"`
 }
 
-func (h *RoleHandler) AddPermission(c *gin.Context) {
+func (h *RoleHandler) AssignPermission(c *gin.Context) {
     idStr := c.Param("id")
     roleID, err := strconv.ParseUint(idStr, 10, 64)
      if err != nil {
@@ -101,7 +101,7 @@ func (h *RoleHandler) AddPermission(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"message": "permission added"})
 }
 
-func (h *RoleHandler) RemovePermission(c *gin.Context) {
+func (h *RoleHandler) RevokePermission(c *gin.Context) {
     idStr := c.Param("id")
     roleID, err := strconv.ParseUint(idStr, 10, 64)
      if err != nil {

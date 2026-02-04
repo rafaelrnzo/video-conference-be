@@ -29,7 +29,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 type createUserReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
-	Role     string `json:"role"`
+	RoleID   uint   `json:"role_id"`
 }
 
 func (h *UserHandler) CreateUser(c *gin.Context) {
@@ -39,7 +39,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	u, err := h.svc.CreateUser(body.Username, body.Password, body.Role)
+	u, err := h.svc.CreateUser(body.Username, body.Password, body.RoleID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -48,7 +48,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 }
 
 type updateRoleReq struct {
-	Role string `json:"role"`
+	RoleID uint `json:"role_id"`
 }
 
 func (h *UserHandler) UpdateUserRole(c *gin.Context) {
@@ -65,7 +65,7 @@ func (h *UserHandler) UpdateUserRole(c *gin.Context) {
 		return
 	}
 
-	u, err := h.svc.UpdateUserRole(uint(id64), body.Role)
+	u, err := h.svc.UpdateUserRole(uint(id64), body.RoleID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

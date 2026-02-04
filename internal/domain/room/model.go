@@ -17,8 +17,10 @@ type Room struct {
 	GroupID         *uint          `json:"group_id"`
 	Group           *group.Group   `json:"group" gorm:"foreignKey:GroupID"`
 	AssignedTo      pq.StringArray `json:"assigned_to" gorm:"type:text[]"`
+	BannedUsers     pq.StringArray `json:"banned_users" gorm:"type:text[]"`
 	Description     string         `json:"description"`
 	MaxParticipants int            `json:"max_participants"`
+	PresentationPath string        `json:"presentation_path"`
 	CreatedByID     uint           `json:"createdById"`
 	CreatedAt       time.Time      `json:"createdAt"`
 	UpdatedAt       time.Time      `json:"updatedAt"`

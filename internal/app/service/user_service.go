@@ -12,8 +12,8 @@ import (
 
 type UserService interface {
 	ListUsers() ([]user.User, error)
-	CreateUser(username, password, role string) (*user.User, error)
-	UpdateUserRole(id uint, role string) (*user.User, error)
+	CreateUser(username, password string, roleID uint) (*user.User, error)
+	UpdateUserRole(id uint, roleID uint) (*user.User, error)
 	DeleteUser(id uint) error
 }
 
@@ -33,7 +33,8 @@ func NewUserService() UserService {
 func (s *userService) ListUsers() ([]user.User, error) {
 	var users []user.User
 	if err := utility.DB.
-		Select("id", "username", "role", "created_at", "updated_at").
+		Preload("Role"). /* Preload role data */
+		Select("id", "username", "role_id", "created_at", "updated_at").
 		Order("id ASC").
 		Find(&users).Error; err != nil {
 		return nil, err
@@ -41,23 +42,24 @@ func (s *userService) ListUsers() ([]user.User, error) {
 	return users, nil
 }
 
-func (s *userService) CreateUser(username, password, roleStr string) (*user.User, error) {
+func (s *userService) CreateUser(username, password string, roleID uint) (*user.User, error) {
 	if username == "" || password == "" {
 		return nil, errors.New("username and password are required")
 	}
 
-    // Resolve Role
+    // Validate Role
     var r role.Role
-    // Default to "user" if empty, or error?
-    targetRole := roleStr
-    if targetRole == "" {
-        targetRole = "user"
-    }
-    
-    // We need to fetch the role from DB
-    // Import "video-conference-be/internal/domain/role" is needed in file
-    if err := utility.DB.Where("name = ?", targetRole).First(&r).Error; err != nil {
-        return nil, errors.New("role not found: " + targetRole)
+    if roleID == 0 {
+         // Try to find default "user" role if roleID is 0? Or just error?
+         // Let's force a valid ID or find "user"
+         if err := utility.DB.Where("name = ?", "user").First(&r).Error; err != nil {
+             return nil, errors.New("default role 'user' not found, please provide a valid role_id")
+         }
+         roleID = r.ID
+    } else {
+        if err := utility.DB.First(&r, roleID).Error; err != nil {
+            return nil, errors.New("role not found")
+        }
     }
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -68,7 +70,7 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 	u := &user.User{
 		Username:     username,
 		PasswordHash: string(hashed),
-		RoleID:       r.ID,
+		RoleID:       roleID,
 	}
 
 	if err := utility.DB.Create(u).Error; err != nil {
@@ -76,12 +78,13 @@ func (s *userService) CreateUser(username, password, roleStr string) (*user.User
 	}
 
 	u.PasswordHash = "" // safety
+    u.Role = &r
 	return u, nil
 }
 
-func (s *userService) UpdateUserRole(id uint, roleStr string) (*user.User, error) {
-	if roleStr == "" {
-		return nil, errors.New("role is required")
+func (s *userService) UpdateUserRole(id uint, roleID uint) (*user.User, error) {
+	if roleID == 0 {
+		return nil, errors.New("role_id is required")
 	}
 
 	var u user.User
@@ -90,8 +93,8 @@ func (s *userService) UpdateUserRole(id uint, roleStr string) (*user.User, error
 	}
     
     var r role.Role
-    if err := utility.DB.Where("name = ?", roleStr).First(&r).Error; err != nil {
-        return nil, errors.New("role not found: " + roleStr)
+    if err := utility.DB.First(&r, roleID).Error; err != nil {
+        return nil, errors.New("role not found")
     }
 
     u.RoleID = r.ID
