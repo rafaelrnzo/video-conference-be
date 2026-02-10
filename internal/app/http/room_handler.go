@@ -60,6 +60,7 @@ type createRoomReq struct {
 	GroupID         *uint     `json:"group_id"`
 	StartDate       time.Time `json:"start_date"`
 	EndDate         time.Time `json:"end_date"`
+	Password        string    `json:"password"`
 }
 
 func (h *RoomHandler) CreateRoom(c *gin.Context) {
@@ -80,6 +81,7 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 		StartDate:       body.StartDate,
 		EndDate:         body.EndDate,
 		CreatedByID:     createdByID,
+		Password:        body.Password,
 	}
 
 	createdRoom, err := h.svc.CreateRoom(req)
@@ -98,6 +100,7 @@ type updateRoomReq struct {
 	GroupID         *uint     `json:"group_id"`
 	StartDate       time.Time `json:"start_date"`
 	EndDate         time.Time `json:"end_date"`
+	Password        string    `json:"password"`
 }
 
 func (h *RoomHandler) UpdateRoom(c *gin.Context) {
@@ -123,6 +126,7 @@ func (h *RoomHandler) UpdateRoom(c *gin.Context) {
 		GroupID:         body.GroupID,
 		StartDate:       body.StartDate,
 		EndDate:         body.EndDate,
+		Password:        body.Password,
 	}
 
 	updatedRoom, err := h.svc.UpdateRoom(req)

@@ -137,6 +137,9 @@ func (s *roomService) UpdateRoom(req room.Room) (*room.Room, error) {
 	existingRoom.Description = req.Description
 	existingRoom.MaxParticipants = req.MaxParticipants
 	existingRoom.AssignedTo = req.AssignedTo
+	if req.Password != "" {
+		existingRoom.Password = req.Password
+	}
 
 	if req.GroupID != nil {
 		if *req.GroupID == 0 {
@@ -274,15 +277,19 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
     urlBase = strings.TrimRight(urlBase, "/")
     bucketName := strings.Trim(utility.Config.MinioBucket, "/")
     
-	fullURL := fmt.Sprintf("%s/%s/%s", urlBase, bucketName, objectName)
+	// Instead of storing the direct MinIO URL (which requires public access),
+	// store a proxy URL that routes through our backend
+	// The frontend will access: /api/presentations/{roomID}
+	// which will stream the file from MinIO with proper auth
+	proxyURL := fmt.Sprintf("/api/presentations/%d", roomID)
 
 	// 6. Update DB
-	r.PresentationPath = fullURL
+	r.PresentationPath = proxyURL
 	if err := utility.DB.Save(&r).Error; err != nil {
 		return "", err
 	}
 
-	return fullURL, nil
+	return proxyURL, nil
 }
 
 func (s *roomService) DownloadPresentation(ctx context.Context, path string) (*minio.Object, string, error) {

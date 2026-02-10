@@ -24,4 +24,5 @@ type Room struct {
 	CreatedByID     uint           `json:"createdById"`
 	CreatedAt       time.Time      `json:"createdAt"`
 	UpdatedAt       time.Time      `json:"updatedAt"`
+	Password        string         `json:"password,omitempty"`
 }

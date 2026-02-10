@@ -550,3 +550,127 @@ func (h *LivekitHandler) UnbanParticipant(c *gin.Context) {
 
 	c.Status(http.StatusOK)
 }
+
+func (h *LivekitHandler) GetPublicRoom(c *gin.Context) {
+	code := c.Param("code")
+	if code == "" {
+		respondError(c, http.StatusBadRequest, "room code required")
+		return
+	}
+	dbRoom, err := h.roomSvc.GetRoomByCode(code)
+	if err != nil {
+		respondError(c, http.StatusNotFound, "room not found")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"name":                  dbRoom.Name,
+		"description":           dbRoom.Description,
+		"is_password_protected": dbRoom.Password != "",
+		"start_date":            dbRoom.StartDate,
+		"end_date":              dbRoom.EndDate,
+		"is_public":             (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0,
+	})
+}
+
+func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
+	var body struct {
+		RoomCode string `json:"room_code"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	dbRoom, err := h.roomSvc.GetRoomByCode(body.RoomCode)
+	if err != nil {
+		respondError(c, http.StatusNotFound, "room not found")
+		return
+	}
+
+	// Check time constraints
+	now := time.Now()
+	if now.Before(dbRoom.StartDate) {
+		respondError(c, http.StatusForbidden, "meeting has not started")
+		return
+	}
+	if now.After(dbRoom.EndDate) {
+		respondError(c, http.StatusForbidden, "meeting has ended")
+		return
+	}
+
+	// 1. Check Public Access
+	isPublic := (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0
+	if !isPublic {
+		respondError(c, http.StatusForbidden, "this room is private, please login")
+		return
+	}
+
+	// 2. Check Password
+	if dbRoom.Password != "" {
+		if dbRoom.Password != body.Password {
+			respondError(c, http.StatusForbidden, "invalid password")
+			return
+		}
+	}
+
+	// 3. Generate Token
+	identity := body.Username
+	// Sanitize or fallback
+	if identity == "" {
+		// If empty, reject? Or auto-generate?
+		// User said "mengganti nama atau mengisi nama". Implies required.
+		respondError(c, http.StatusBadRequest, "username is required")
+		return
+	}
+
+    // Check for duplicate identity in active room?
+    // LiveKit handles duplicates by kicking the old one usually, but good UX might check.
+    // For now, rely on LiveKit.
+
+	// Determine Waiting Room
+	isWaiting := false
+	waitingRoomEnabled := true // default for public
+	
+	liveRooms, err := h.lk.ListRooms(c.Request.Context())
+	if err == nil {
+		for _, r := range liveRooms {
+			if r.Name == dbRoom.RoomCode {
+				if r.Metadata != "" {
+					var metaMap map[string]interface{}
+					if json.Unmarshal([]byte(r.Metadata), &metaMap) == nil {
+						if val, ok := metaMap["waiting_room_enabled"]; ok {
+							if boolVal, ok := val.(bool); ok {
+								waitingRoomEnabled = boolVal
+							}
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if waitingRoomEnabled {
+		isWaiting = true
+	}
+
+	token, host, err := h.lk.GenerateUserToken(c.Request.Context(), dbRoom.RoomCode, identity, isWaiting)
+	if err != nil {
+		logAndRespondError(c, http.StatusInternalServerError, "failed to generate token", err)
+		return
+	}
+
+    // Mark user as online (guest ID 0)
+	_ = h.lk.SetUserOnline(c.Request.Context(), 0, identity, dbRoom.RoomCode, 2*time.Minute)
+
+	c.JSON(http.StatusOK, gin.H{
+		"token":      token,
+		"host":       host,
+		"identity":   identity,
+		"room_name":  dbRoom.Name,
+		"is_waiting": isWaiting,
+	})
+}

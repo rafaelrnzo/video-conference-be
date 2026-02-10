@@ -63,6 +63,8 @@ func NewRouter() *gin.Engine {
 	r.POST("/login", authHandler.Login)
 	r.POST("/sso-login", authHandler.SSOLogin)
 	r.POST("/livekit/webhook", lkHandler.Webhook)
+	r.GET("/public/rooms/:code", lkHandler.GetPublicRoom)
+	r.POST("/public/join", lkHandler.JoinPublicRoom)
 
 	api := r.Group("/api")
 	api.Use(JWTAuthMiddleware())

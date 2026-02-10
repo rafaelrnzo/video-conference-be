@@ -36,7 +36,7 @@ func LoadConfig() {
 
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Error loading .env file: %v", err)
-		// Try loading from parent directories just in case
+
 		_ = godotenv.Load("../../.env")
 	}
 
