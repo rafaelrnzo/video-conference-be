@@ -50,10 +50,7 @@ func seedUsers(db *gorm.DB) {
 
 	password, _ := utility.HashPassword("password123")
 	    
-    // We need to look up the IDs from the roles table.
     var rAdmin, rUser struct { ID uint } 
-    // We can use the Role model or just a quick struct execution
-    // But since we have imports, let's just query.
     
     db.Table("roles").Where("name = ?", "admin").Select("id").Scan(&rAdmin)
     db.Table("roles").Where("name = ?", "user").Select("id").Scan(&rUser)
@@ -89,7 +86,6 @@ func seedUsers(db *gorm.DB) {
 				log.Printf("Error checking user %s: %v\n", u.Username, err)
 			}
 		} else {
-            // Update role if exists? Maybe useful for fixing existing bad data
              if existing.RoleID == 0 {
                   existing.RoleID = u.RoleID
                   db.Save(&existing)
@@ -104,7 +100,6 @@ func seedUsers(db *gorm.DB) {
 func seedGroups(db *gorm.DB) {
 	log.Println("Seeding groups...")
 
-	// Fetch users to add to groups
 	var user1, user2 user.User
 	db.Where("username = ?", "user1").First(&user1)
 	db.Where("username = ?", "user2").First(&user2)
@@ -129,7 +124,6 @@ func seedGroups(db *gorm.DB) {
 				} else {
 					log.Printf("Group %s created.\n", g.Name)
 					
-					// Add members if users exist
 					if user1.ID != 0 {
 						if err := db.Model(&g).Association("Members").Append(&user1); err != nil {
                             log.Printf("Failed to add user1 to group %s: %v\n", g.Name, err)
@@ -153,11 +147,9 @@ func seedGroups(db *gorm.DB) {
 func seedRooms(db *gorm.DB) {
 	log.Println("Seeding rooms...")
 
-    // Fetch a group to link
     var engGroup group.Group
     db.Where("name = ?", "Engineering").First(&engGroup)
     
-    // Fetch admin user for CreatedByID
     var admin user.User
     db.Where("username = ?", "admin").First(&admin)
 

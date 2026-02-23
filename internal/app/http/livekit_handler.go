@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"video-conference-be/internal/app/service"
-	//dUser "video-conference-be/internal/domain/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/livekit/protocol/livekit"
@@ -70,7 +69,6 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 
 	identity := c.GetString("username")
 	
-	// Check if banned
 	if len(dbRoom.BannedUsers) > 0 && stringInSlice(identity, dbRoom.BannedUsers) {
 		respondError(c, http.StatusForbidden, "you banned from this room")
 		return
@@ -130,28 +128,19 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 		return
 	}
 
-	// Determine if user needs to wait (Public Room + Not Admin + Not Creator + Not Assigned + Not Member)
 	isWaiting := false
 
-	// Check if user is Admin or Creator (always allowed instantly)
-	// Creator check could be: dbRoom.CreatedByID == userID
-	// Admin check: c.GetString("role") == "admin"
-	// Admin check: c.GetString("role") == "admin"
 	role := c.GetString("role")
 	isAdmin := role == "admin"
 	isCreator := dbRoom.CreatedByID == userID
 
 
-	// 1. Fetch live room info to check metadata (for dynamic Waiting Room toggle)
-	// We use ListRooms filtered by name because GetRoom isn't always direct in some SDK versions, 
-	// or we just want to be safe.
 	liveRooms, err := h.lk.ListRooms(c.Request.Context())
-	waitingRoomEnabled := true // Default to true for Public Rooms (as per existing logic)
+	waitingRoomEnabled := true
 
 	if err == nil {
 		for _, r := range liveRooms {
 			if r.Name == dbRoom.RoomCode {
-				// Parse metadata
 				if r.Metadata != "" {
 					var metaMap map[string]interface{}
 					if json.Unmarshal([]byte(r.Metadata), &metaMap) == nil {
@@ -168,9 +157,7 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	}
 
 	if !isAdmin && !isCreator {
-		// If Public Room (No Group, No Assignments) -> Waiting Room
 		if (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0 {
-			// Only enable if the toggle allows it
 			if waitingRoomEnabled {
 				isWaiting = true
 			}
@@ -320,14 +307,12 @@ func (h *LivekitHandler) KickParticipant(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	role := c.GetString("role")
 
-	// 1. Get Room to check ownership
 	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
 	if err != nil {
 		logAndRespondError(c, http.StatusNotFound, "room not found", err)
 		return
 	}
 
-	// 2. Check Permissions: Only Creator or Admin can kick
 	isCreator := room.CreatedByID == userID
 	isAdmin := role == "admin"
 
@@ -336,13 +321,11 @@ func (h *LivekitHandler) KickParticipant(c *gin.Context) {
 		return
 	}
 
-	// 3. Execute Kick
 	if err := h.lk.RemoveParticipant(c.Request.Context(), body.RoomCode, body.Identity); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to kick participant", err)
 		return
 	}
 
-	// 4. Force Set User Offline
 	_ = h.lk.SetUserOffline(c.Request.Context(), body.Identity)
 
 	c.Status(http.StatusNoContent)
@@ -380,7 +363,6 @@ func (h *LivekitHandler) AdmitParticipant(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	role := c.GetString("role")
 
-	// Check permissions (Admin or Creator)
 	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
 	if err != nil {
 		logAndRespondError(c, http.StatusNotFound, "room not found", err)
@@ -395,7 +377,6 @@ func (h *LivekitHandler) AdmitParticipant(c *gin.Context) {
 		return
 	}
 
-	// Update Participant Permissions (Full access)
 	canPub := true
 	canSub := true
 	canData := true
@@ -452,14 +433,12 @@ func (h *LivekitHandler) MuteParticipant(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	role := c.GetString("role")
 
-	// 1. Get Room to check ownership
 	room, err := h.roomSvc.GetRoomByCode(body.RoomCode)
 	if err != nil {
 		logAndRespondError(c, http.StatusNotFound, "room not found", err)
 		return
 	}
 
-	// 2. Check Permissions: Only Creator or Admin can mute others
 	isCreator := room.CreatedByID == userID
 	isAdmin := role == "admin"
 
@@ -468,7 +447,6 @@ func (h *LivekitHandler) MuteParticipant(c *gin.Context) {
 		return
 	}
 
-	// 3. Execute Mute
 	if err := h.lk.MuteParticipant(c.Request.Context(), body.RoomCode, body.Identity, body.MuteAudio, body.MuteVideo); err != nil {
 		logAndRespondError(c, http.StatusInternalServerError, "failed to mute participant", err)
 		return
@@ -509,7 +487,6 @@ func (h *LivekitHandler) BanParticipant(c *gin.Context) {
 		return
 	}
 
-	// Kick from current session
 	_ = h.lk.RemoveParticipant(c.Request.Context(), body.RoomCode, body.Identity)
 	_ = h.lk.SetUserOffline(c.Request.Context(), body.Identity)
 
@@ -590,7 +567,6 @@ func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
 		return
 	}
 
-	// Check time constraints
 	now := time.Now()
 	if now.Before(dbRoom.StartDate) {
 		respondError(c, http.StatusForbidden, "meeting has not started")
@@ -601,14 +577,12 @@ func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
 		return
 	}
 
-	// 1. Check Public Access
 	isPublic := (dbRoom.GroupID == nil || *dbRoom.GroupID == 0) && len(dbRoom.AssignedTo) == 0
 	if !isPublic {
 		respondError(c, http.StatusForbidden, "this room is private, please login")
 		return
 	}
 
-	// 2. Check Password
 	if dbRoom.Password != "" {
 		if dbRoom.Password != body.Password {
 			respondError(c, http.StatusForbidden, "invalid password")
@@ -616,23 +590,14 @@ func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
 		}
 	}
 
-	// 3. Generate Token
 	identity := body.Username
-	// Sanitize or fallback
 	if identity == "" {
-		// If empty, reject? Or auto-generate?
-		// User said "mengganti nama atau mengisi nama". Implies required.
 		respondError(c, http.StatusBadRequest, "username is required")
 		return
 	}
 
-    // Check for duplicate identity in active room?
-    // LiveKit handles duplicates by kicking the old one usually, but good UX might check.
-    // For now, rely on LiveKit.
-
-	// Determine Waiting Room
 	isWaiting := false
-	waitingRoomEnabled := true // default for public
+	waitingRoomEnabled := true
 	
 	liveRooms, err := h.lk.ListRooms(c.Request.Context())
 	if err == nil {
@@ -663,7 +628,6 @@ func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
 		return
 	}
 
-    // Mark user as online (guest ID 0)
 	_ = h.lk.SetUserOnline(c.Request.Context(), 0, identity, dbRoom.RoomCode, 2*time.Minute)
 
 	c.JSON(http.StatusOK, gin.H{

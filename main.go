@@ -1,68 +1,41 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
-	"time"
-	"video-conference-be/config"
-	"video-conference-be/handlers"
-	"video-conference-be/middleware"
+	"video-conference-be/internal/app/http"
+	"video-conference-be/internal/app/repository"
+	"video-conference-be/internal/app/service"
+	"video-conference-be/internal/domain/models"
+	"video-conference-be/pkg/utility"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func main() {
-	// 1. Load Configuration
-	cfg := config.LoadConfig()
-
-	// 2. Initialize OIDC Middleware
-	authMiddleware, err := middleware.NewAuthMiddleware(cfg)
-	if err != nil {
-		log.Fatalf("Failed to initialize auth middleware: %v", err)
-	}
-
-	// 3. Initialize Router
-	r := gin.Default()
-
-	// 4. Setup CORS
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{cfg.FrontendURL},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
-
-	// 5. Initialize Handlers
-	userHandler := handlers.NewUserHandler()
-
-	// 6. Setup Routes
-	api := r.Group("/api")
-	{
-		// Public Routes (if any)
-		api.GET("/health", func(c *gin.Context) {
-			c.JSON(200, gin.H{"status": "ok"})
-		})
-
-		// Protected Routes
-		protected := api.Group("/")
-		protected.Use(authMiddleware.Handle())
-		{
-			protected.GET("/profile", userHandler.GetProfile)
-			
-			// Admin Routes
-			admin := protected.Group("/admin")
-			admin.Use(middleware.RequireRole("admin"))
-			{
-				admin.GET("/", userHandler.AdminEndpoint)
-			}
-		}
-	}
-
-	// 7. Start Server
-	log.Printf("Server starting on port %s", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+func autoMigrate(db *gorm.DB) {
+	for _, m := range models.Models {
+		db.AutoMigrate(m)
 	}
 }
+
+func main() {
+	utility.LoadConfig()
+	utility.InitDB()
+	utility.InitRedis()
+	autoMigrate(utility.DB)
+
+	// Init Roles
+	roleRepo := repository.NewRoleRepository()
+	roleSvc := service.NewRoleService(roleRepo)
+	if err := roleSvc.InitDefaultRoles(context.Background()); err != nil {
+		log.Printf("Warning: Failed to init default roles: %v", err)
+	}
+
+	r := http.NewRouter()
+
+	addr := ":" + utility.Config.Port
+	fmt.Printf("Server running at http://localhost%s\n", addr)
+	log.Fatal(r.Run(addr))
+}
+

@@ -53,11 +53,12 @@ func (c *LivekitClient) GenerateToken(roomName, identity string, ttl time.Durati
 	canData := true
 
 	grant := &auth.VideoGrant{
-		RoomJoin:       true,
-		Room:           roomName,
-		CanPublish:     &canPublish,
-		CanSubscribe:   &canSubscribe,
-		CanPublishData: &canData,
+		RoomJoin:             true,
+		Room:                 roomName,
+		CanPublish:           &canPublish,
+		CanSubscribe:         &canSubscribe,
+		CanPublishData:       &canData,
+		CanUpdateOwnMetadata: &canData,
 	}
 
 	at.SetVideoGrant(grant).

@@ -13,18 +13,24 @@ import (
 
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		tokenStr := ""
 		h := c.GetHeader("Authorization")
-		if h == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing Authorization header"})
-			return
-		}
-		parts := strings.SplitN(h, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid Authorization header"})
-			return
+		if h != "" {
+			parts := strings.SplitN(h, " ", 2)
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				tokenStr = strings.TrimSpace(parts[1])
+			}
 		}
 
-		tokenStr := strings.TrimSpace(parts[1])
+		// Fallback to query parameter for iframes or other requests that can't set headers easily
+		if tokenStr == "" {
+			tokenStr = c.Query("token")
+		}
+
+		if tokenStr == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authentication token"})
+			return
+		}
 
 		log.Printf("[JWT] incoming token (first 30 chars): %s\n", safePrefix(tokenStr, 30))
 
@@ -37,7 +43,7 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		var u dUser.User
 		var userID uint
-        // Preload Role and Permissions
+		// Preload Role and Permissions
 		if err := utility.DB.Preload("Role.Permissions").Where("username = ?", claims.Username).First(&u).Error; err != nil {
 			log.Printf("[JWT] WARNING: user with username=%s not found, user_id=0. err=%v\n", claims.Username, err)
 			userID = 0
@@ -50,15 +56,15 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		c.Set("user_id", userID)
 		c.Set("username", claims.Username)
 		c.Set("role", string(claims.Role))
-        
-        // Store permissions in context for CheckPermission
-        if u.Role != nil {
-             permMap := make(map[string]bool)
-             for _, p := range u.Role.Permissions {
-                 permMap[p.Key] = true
-             }
-             c.Set("permissions", permMap)
-        }
+
+		// Store permissions in context for CheckPermission
+		if u.Role != nil {
+			permMap := make(map[string]bool)
+			for _, p := range u.Role.Permissions {
+				permMap[p.Key] = true
+			}
+			c.Set("permissions", permMap)
+		}
 
 		c.Next()
 	}
@@ -93,31 +99,31 @@ func AdminOnly() gin.HandlerFunc {
 }
 
 func RequirePermission(perm string) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        // Admins pass all checks
-        roleVal, _ := c.Get("role")
-        if roleStr, ok := roleVal.(string); ok && roleStr == "admin" {
-            c.Next()
-            return
-        }
+	return func(c *gin.Context) {
+		// Admins pass all checks
+		roleVal, _ := c.Get("role")
+		if roleStr, ok := roleVal.(string); ok && roleStr == "admin" {
+			c.Next()
+			return
+		}
 
-        permVal, exists := c.Get("permissions")
-        if !exists {
-            c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permissions missing"})
-            return
-        }
-        
-        permMap, ok := permVal.(map[string]bool)
-        if !ok {
-            c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid permissions format"})
-            return
-        }
-        
-        if !permMap[perm] {
-            c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing permission: " + perm})
-            return
-        }
-        
-        c.Next()
-    }
+		permVal, exists := c.Get("permissions")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permissions missing"})
+			return
+		}
+
+		permMap, ok := permVal.(map[string]bool)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid permissions format"})
+			return
+		}
+
+		if !permMap[perm] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing permission: " + perm})
+			return
+		}
+
+		c.Next()
+	}
 }

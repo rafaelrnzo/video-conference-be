@@ -241,7 +241,7 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 	if ext != ".pdf" {
 		// optional: force check or allow others
 		// return "", errors.New("only pdf allowed")
-    // for now let's allow it but prefer PDF
+		// for now let's allow it but prefer PDF
 		contentType = fileHeader.Header.Get("Content-Type")
 	}
 
@@ -267,17 +267,17 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 	// For public access, we might need a different public URL if configured.
 	// But let's stick to what RecordingService uses or just store the relative path if client constructs it?
 	// RecordingService stores full link: link := fmt.Sprintf("%s/%s/%s", base, bucket, filePath)
-    // We will do the same.
+	// We will do the same.
 
-    // Update: user Config.MinioBaseURL if it exists (it was in config.go)
-    urlBase := utility.Config.MinioBaseURL
-    if urlBase == "" {
-        urlBase = utility.Config.MinioEndpoint
-    }
-    urlBase = strings.TrimRight(urlBase, "/")
-    bucketName := strings.Trim(utility.Config.MinioBucket, "/")
-    
-	// Instead of storing the direct MinIO URL (which requires public access),
+	// Update: user Config.MinioBaseURL if it exists (it was in config.go)
+	urlBase := utility.Config.MinioBaseURL
+	if urlBase == "" {
+		urlBase = utility.Config.MinioEndpoint
+	}
+	urlBase = strings.TrimRight(urlBase, "/")
+	_ = strings.Trim(utility.Config.MinioBucket, "/")
+
+	// Instead of storing the                  direct MinIO URL (which requires public access),
 	// store a proxy URL that routes through our backend
 	// The frontend will access: /api/presentations/{roomID}
 	// which will stream the file from MinIO with proper auth
@@ -296,24 +296,63 @@ func (s *roomService) DownloadPresentation(ctx context.Context, path string) (*m
 	bucket := utility.Config.MinioBucket
 	objectName := path
 
-	// If path is a full URL, try to extract the object name
-	// Format: .../bucketName/objectName
-	// Or .../bucketName/presentations/id/file
-	if strings.HasPrefix(path, "http") {
-		// Try to find the bucket name and split after it
-		// This is a bit heuristic.
-		// Assuming standard format: base/bucket/key
-		parts := strings.Split(path, bucket+"/")
-		if len(parts) > 1 {
-			objectName = parts[1]
-		} else {
-			// Fallback: assume the last parts are the key
-			// presentations/id/filename
-			if idx := strings.Index(path, "presentations/"); idx != -1 {
-				objectName = path[idx:]
-			}
+	// Parse room ID from path if it's a proxy URL like /api/presentations/123
+	var roomID uint64
+	// simple parsing: check if path ends with number
+	if idx := strings.LastIndex(path, "/"); idx != -1 {
+		if id, err := strconv.ParseUint(path[idx+1:], 10, 64); err == nil {
+			roomID = id
 		}
 	}
+
+	// If we have a roomID, list objects in prefix "presentations/{roomID}/"
+	if roomID > 0 {
+		prefix := fmt.Sprintf("presentations/%d/", roomID)
+		// List objects
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		objectCh := s.minioClient.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+			Prefix:    prefix,
+			Recursive: true,
+			MaxKeys:   1, // We only need one (the latest/only one)
+		})
+
+		for object := range objectCh {
+			if object.Err != nil {
+				log.Printf("[DownloadPresentation] ListObjects error: %v", object.Err)
+				continue
+			}
+			// Found it!
+			objectName = object.Key
+			break
+		}
+        
+        // If objectName is still the path (proxy URL), we didn't find anything or failed
+        if objectName == path {
+             // Fallback or error?
+             // Maybe try to assume standard name if upload was done differently before?
+             // But for now, if list fails, we probably won't find it.
+             // We can check if objectName actually exists as a key, but low chance.
+             // Let's log warning.
+             log.Printf("[DownloadPresentation] Could not resolve object from room ID %d, trying path as key: %s", roomID, path)
+        }
+	} else {
+        // ... existing logic for full URLs ...
+        if strings.HasPrefix(path, "http") {
+            // ...
+    		parts := strings.Split(path, bucket+"/")
+    		if len(parts) > 1 {
+    			objectName = parts[1]
+    		} else {
+    			// Fallback: assume the last parts are the key
+    			// presentations/id/filename
+    			if idx := strings.Index(path, "presentations/"); idx != -1 {
+    				objectName = path[idx:]
+    			}
+    		}
+        }
+    }
 
 	obj, err := s.minioClient.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {

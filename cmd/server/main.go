@@ -26,7 +26,6 @@ func main() {
 	utility.InitRedis()
 	autoMigrate(utility.DB)
 
-    // Init Roles
     roleRepo := repository.NewRoleRepository()
     roleSvc := service.NewRoleService(roleRepo)
     if err := roleSvc.InitDefaultRoles(context.Background()); err != nil {

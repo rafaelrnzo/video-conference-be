@@ -27,8 +27,6 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 }
 
 func (h *UserHandler) AdminEndpoint(c *gin.Context) {
-	// RBAC Check is done in middleware or here
-	// Assuming RequireRole("admin") middleware is used on the route
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Welcome Admin!",
 	})
