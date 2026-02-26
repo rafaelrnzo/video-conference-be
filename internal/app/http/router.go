@@ -84,13 +84,9 @@ func NewRouter() *gin.Engine {
 		api.GET("/presentations/:id", roomHandler.ProxyPresentation)
 	}
 
-	// === ADMIN ROUTES - Migrating to specific permissions ===
-	// Note: We keep /admin prefix but check specific permissions.
-	// AdminOnly() is removed from the group and applied per requirement or we use RequirePermission
-
+	// === ADMIN ROUTES ===
 	adminGroup := r.Group("/admin")
 	adminGroup.Use(JWTAuthMiddleware())
-	// adminGroup.Use(AdminOnly()) // REMOVED rigid check, using permission checks below
 	{
 		// GROUP MANAGEMENT
 		adminGroup.GET("/groups", RequirePermission("group:manage"), groupHandler.ListGroups)
@@ -102,19 +98,18 @@ func NewRouter() *gin.Engine {
 		adminGroup.DELETE("/groups/:id/members/:userId", RequirePermission("group:manage"), groupHandler.RemoveMember)
 
 		// LIVEKIT ROOMS (Real-time)
-		// Assuming permission "room:read" / "room:update" / "room:delete"
 		adminGroup.GET("/livekit/rooms", RequirePermission("room:read"), lkHandler.ListActiveRooms)
-		adminGroup.DELETE("/livekit/rooms/:name", RequirePermission("room:delete"), lkHandler.DeleteActiveRoom) // Closing room
+		adminGroup.DELETE("/livekit/rooms/:name", RequirePermission("room:delete"), lkHandler.DeleteActiveRoom)
 
 		// Participants
-		adminGroup.GET("/livekit/participants", RequirePermission("room:read"), lkHandler.ListParticipants)       // or explicit participant permission
-		adminGroup.DELETE("/livekit/participants", RequirePermission("room:update"), lkHandler.RemoveParticipant) // kicking is managing room
+		adminGroup.GET("/livekit/participants", RequirePermission("room:read"), lkHandler.ListParticipants)
+		adminGroup.DELETE("/livekit/participants", RequirePermission("room:update"), lkHandler.RemoveParticipant)
 		adminGroup.POST("/livekit/rooms/mute-all", RequirePermission("room:update"), lkHandler.MuteAll)
 		adminGroup.POST("/livekit/participants/mute", RequirePermission("room:update"), lkHandler.MuteParticipant)
 		adminGroup.POST("/livekit/rooms/permissions", RequirePermission("room:update"), lkHandler.UpdateRoomPermissions)
 
 		// RECORDINGS
-		adminGroup.POST("/livekit/recordings/start", RequirePermission("recording:create"), recordingHandler.StartRecording) // if missing, maybe room:update?
+		adminGroup.POST("/livekit/recordings/start", RequirePermission("recording:create"), recordingHandler.StartRecording)
 		adminGroup.POST("/livekit/recordings/stop", RequirePermission("recording:create"), recordingHandler.StopRecording)
 		adminGroup.POST("/recordings/sync", RequirePermission("recording:create"), recordingHandler.Sync)
 		adminGroup.GET("/recordings", RequirePermission("recording:read"), recordingHandler.ListRecords)
@@ -138,12 +133,9 @@ func NewRouter() *gin.Engine {
 		adminGroup.GET("/presentations/:id", roomHandler.ProxyPresentation)
 
 		// POLLS
-		adminGroup.POST("/polls", RequirePermission("room:update"), pollHandler.SavePoll) // Polls are part of room activity
+		adminGroup.POST("/polls", RequirePermission("room:update"), pollHandler.SavePoll)
 
-		// DYNAMIC ROLES - ConfigureRoleRoutes is separate, let's inline or check it
-		// ConfigureRoleRoutes(adminGroup, roleHandler) <-- checks what?
-
-		// Explicit Role Management Routes
+		// ROLES
 		adminGroup.GET("/roles", RequirePermission("role:read"), roleHandler.ListRoles)
 		adminGroup.POST("/roles", RequirePermission("role:create"), roleHandler.CreateRole)
 		adminGroup.PATCH("/roles/:id", RequirePermission("role:update"), roleHandler.UpdateRole)

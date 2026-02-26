@@ -7,7 +7,9 @@ import (
 	"log"
 	"mime/multipart"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 	"video-conference-be/internal/domain/room"
 	"video-conference-be/pkg/utility"
 
@@ -212,23 +214,18 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 		return "", errors.New("minio client not initialized")
 	}
 
-	// 1. Get Room
 	var r room.Room
 	if err := utility.DB.First(&r, roomID).Error; err != nil {
 		return "", errors.New("room not found")
 	}
 
-	// 2. Open File
 	src, err := fileHeader.Open()
 	if err != nil {
 		return "", err
 	}
 	defer src.Close()
 
-	// 3. Generate Path
-	// presentations/{roomID}/{filename}
 	ext := filepath.Ext(fileHeader.Filename)
-	// simple sanitization
 	cleanName := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' {
 			return r
@@ -239,15 +236,11 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 	objectName := fmt.Sprintf("presentations/%d/%s", roomID, cleanName)
 	contentType := "application/pdf"
 	if ext != ".pdf" {
-		// optional: force check or allow others
-		// return "", errors.New("only pdf allowed")
-		// for now let's allow it but prefer PDF
 		contentType = fileHeader.Header.Get("Content-Type")
 	}
 
 	bucket := utility.Config.MinioBucket
 
-	// 4. Upload
 	_, err = s.minioClient.PutObject(ctx, bucket, objectName, src, fileHeader.Size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
@@ -255,21 +248,11 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 		return "", fmt.Errorf("failed to upload to minio: %v", err)
 	}
 
-	// 5. Construct URL
-	// similar logic to recording service
 	base := strings.TrimRight(utility.Config.MinioEndpoint, "/")
 	if !strings.HasPrefix(base, "http") {
-		// if config doesn't have scheme, prepend https (or http based on secure)
-		// Assuming config usually has it, if not default to https
 		base = "https://" + base
 	}
-	// Note: Config.MinioEndpoint might be internal k8s dns.
-	// For public access, we might need a different public URL if configured.
-	// But let's stick to what RecordingService uses or just store the relative path if client constructs it?
-	// RecordingService stores full link: link := fmt.Sprintf("%s/%s/%s", base, bucket, filePath)
-	// We will do the same.
 
-	// Update: user Config.MinioBaseURL if it exists (it was in config.go)
 	urlBase := utility.Config.MinioBaseURL
 	if urlBase == "" {
 		urlBase = utility.Config.MinioEndpoint
@@ -277,13 +260,8 @@ func (s *roomService) UploadPresentation(ctx context.Context, roomID uint, fileH
 	urlBase = strings.TrimRight(urlBase, "/")
 	_ = strings.Trim(utility.Config.MinioBucket, "/")
 
-	// Instead of storing the                  direct MinIO URL (which requires public access),
-	// store a proxy URL that routes through our backend
-	// The frontend will access: /api/presentations/{roomID}
-	// which will stream the file from MinIO with proper auth
 	proxyURL := fmt.Sprintf("/api/presentations/%d", roomID)
 
-	// 6. Update DB
 	r.PresentationPath = proxyURL
 	if err := utility.DB.Save(&r).Error; err != nil {
 		return "", err
@@ -296,26 +274,22 @@ func (s *roomService) DownloadPresentation(ctx context.Context, path string) (*m
 	bucket := utility.Config.MinioBucket
 	objectName := path
 
-	// Parse room ID from path if it's a proxy URL like /api/presentations/123
 	var roomID uint64
-	// simple parsing: check if path ends with number
 	if idx := strings.LastIndex(path, "/"); idx != -1 {
 		if id, err := strconv.ParseUint(path[idx+1:], 10, 64); err == nil {
 			roomID = id
 		}
 	}
 
-	// If we have a roomID, list objects in prefix "presentations/{roomID}/"
 	if roomID > 0 {
 		prefix := fmt.Sprintf("presentations/%d/", roomID)
-		// List objects
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		objectCh := s.minioClient.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+		objectCh := s.minioClient.ListObjects(ctxTimeout, bucket, minio.ListObjectsOptions{
 			Prefix:    prefix,
 			Recursive: true,
-			MaxKeys:   1, // We only need one (the latest/only one)
+			MaxKeys:   1,
 		})
 
 		for object := range objectCh {
@@ -323,30 +297,19 @@ func (s *roomService) DownloadPresentation(ctx context.Context, path string) (*m
 				log.Printf("[DownloadPresentation] ListObjects error: %v", object.Err)
 				continue
 			}
-			// Found it!
 			objectName = object.Key
 			break
 		}
         
-        // If objectName is still the path (proxy URL), we didn't find anything or failed
         if objectName == path {
-             // Fallback or error?
-             // Maybe try to assume standard name if upload was done differently before?
-             // But for now, if list fails, we probably won't find it.
-             // We can check if objectName actually exists as a key, but low chance.
-             // Let's log warning.
              log.Printf("[DownloadPresentation] Could not resolve object from room ID %d, trying path as key: %s", roomID, path)
         }
 	} else {
-        // ... existing logic for full URLs ...
         if strings.HasPrefix(path, "http") {
-            // ...
     		parts := strings.Split(path, bucket+"/")
     		if len(parts) > 1 {
     			objectName = parts[1]
     		} else {
-    			// Fallback: assume the last parts are the key
-    			// presentations/id/filename
     			if idx := strings.Index(path, "presentations/"); idx != -1 {
     				objectName = path[idx:]
     			}
@@ -359,10 +322,9 @@ func (s *roomService) DownloadPresentation(ctx context.Context, path string) (*m
 		return nil, "", err
 	}
 
-	// Verify object exists by stating it
 	stat, err := obj.Stat()
 	if err != nil {
-		return nil, "", err // likely 404
+		return nil, "", err
 	}
 
 	return obj, stat.ContentType, nil

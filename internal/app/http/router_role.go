@@ -7,11 +7,6 @@ import (
 // ConfigureRoleRoutes helper to keep router.go clean
 func ConfigureRoleRoutes(r *gin.RouterGroup, handler *RoleHandler) {
 	roles := r.Group("/roles")
-	// Base Role Management (Admin only or manage:roles permission)
-	// We can use CheckPermission("role:read") etc.
-	// For now assuming the parent group has AdminOnly or we add specific perms here.
-
-	// For specific endpoints:
 	roles.GET("", RequirePermission("role:read"), handler.ListRoles)
 	roles.POST("", RequirePermission("role:create"), handler.CreateRole)
 	roles.PATCH("/:id", RequirePermission("role:update"), handler.UpdateRole)

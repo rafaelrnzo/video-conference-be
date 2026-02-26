@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -68,7 +69,7 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	}
 
 	identity := c.GetString("username")
-	
+
 	if len(dbRoom.BannedUsers) > 0 && stringInSlice(identity, dbRoom.BannedUsers) {
 		respondError(c, http.StatusForbidden, "you banned from this room")
 		return
@@ -133,7 +134,6 @@ func (h *LivekitHandler) GenerateToken(c *gin.Context) {
 	role := c.GetString("role")
 	isAdmin := role == "admin"
 	isCreator := dbRoom.CreatedByID == userID
-
 
 	liveRooms, err := h.lk.ListRooms(c.Request.Context())
 	waitingRoomEnabled := true
@@ -263,11 +263,11 @@ func (h *LivekitHandler) Webhook(c *gin.Context) {
 
 	if event.Event == "participant_joined" {
 		if err := h.lk.SetUserOnline(ctx, 0, event.Participant.Identity, event.Room.Name, 24*time.Hour); err != nil {
-			fmt.Printf("failed to set user online: %v\n", err)
+			log.Printf("failed to set user online: %v\n", err)
 		}
 	} else if event.Event == "participant_left" {
 		if err := h.lk.SetUserOffline(ctx, event.Participant.Identity); err != nil {
-			fmt.Printf("failed to set user offline: %v\n", err)
+			log.Printf("failed to set user offline: %v\n", err)
 		}
 	}
 
@@ -598,7 +598,7 @@ func (h *LivekitHandler) JoinPublicRoom(c *gin.Context) {
 
 	isWaiting := false
 	waitingRoomEnabled := true
-	
+
 	liveRooms, err := h.lk.ListRooms(c.Request.Context())
 	if err == nil {
 		for _, r := range liveRooms {

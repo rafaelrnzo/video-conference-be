@@ -186,22 +186,6 @@ func (h *RoomHandler) ProxyPresentation(c *gin.Context) {
 		return
 	}
 
-	// 1. Get Room to find the path
-	// We can use svc.GetRoomById if available, or fetch manually if needed.
-	// Since RoomService interface has GetRoomByCode but not ID exposed easily (only Update/Delete use ID),
-	// We might need to extend Service or rely on repo.
-	// Actually, UpdateRoom uses ID. Let's look at service: UpdateRoom(req room.Room).
-	// We will add a method GetRoomByID to service or just use raw DB in handler if forced (bad practice).
-	// Let's assume we add GetRoomByID to service. I'll add that next.
-
-	// For now, I will assume h.svc has GetRoomByID. I will invoke a new tool to add it if missing.
-	// Wait, I can see the file `room_service.go` in previous steps. It DOES NOT have GetRoomById.
-	// It has GetRoomByCode.
-	// I should add GetRoomByID to RoomService interface and implementation.
-
-	// TEMPORARY HACK: Use reflection/raw access? No, let's do it properly.
-	// I will add GetRoomByID in the next step.
-	// For this chunk, I will write the handler assuming the service method exists.
 
 	r, err := h.svc.GetRoomByID(uint(id64))
 	if err != nil {
@@ -214,10 +198,6 @@ func (h *RoomHandler) ProxyPresentation(c *gin.Context) {
 		return
 	}
 
-	// 2. Stream from MinIO
-	// The Service needs to expose a Stream method, or we handle it here if service exposes one.
-	// Current service has `UploadPresentation`.
-	// I should add `DownloadPresentation(ctx, roomID)` that returns reader, contentType, error.
 
 	reader, contentType, err := h.svc.DownloadPresentation(c.Request.Context(), r.PresentationPath)
 	if err != nil {
