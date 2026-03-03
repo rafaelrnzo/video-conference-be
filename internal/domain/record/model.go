@@ -8,5 +8,6 @@ type Record struct {
 	Name      string    `json:"name"`
 	Link      string    `json:"link"`
 	EgressID  string    `json:"egress_id"`
+	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 }

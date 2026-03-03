@@ -20,6 +20,7 @@ type RecordingService interface {
 	StartRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
 	StopRoomRecording(ctx context.Context, roomName string) (*livekit.EgressInfo, error)
 	SyncFromMinio(ctx context.Context) error
+	DeleteRecording(ctx context.Context, id uint) error
 }
 
 type recordingService struct {
@@ -157,6 +158,7 @@ func (s *recordingService) handleEgressComplete(ctx context.Context, info *livek
 		defaultName,
 		link,
 		info.EgressId,
+		"COMPLETED",
 	)
 	if err != nil {
 		log.Printf("[EGRESS COMPLETE] failed to save record: %v", err)
@@ -173,9 +175,8 @@ func (s *recordingService) SyncFromMinio(ctx context.Context) error {
 	}
 
 	bucket := utility.Config.MinioBucket
-	prefix := "recordings/"
+	prefix := "" // Scan everything inside bucket
 
-	// List objects
 	opts := minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: true,
@@ -190,32 +191,21 @@ func (s *recordingService) SyncFromMinio(ctx context.Context) error {
 			continue
 		}
 
-		// Skip directories (if any) or non-relevant files
-		if strings.HasSuffix(object.Key, "/") || (!strings.HasSuffix(object.Key, ".mp4") && !strings.HasSuffix(object.Key, ".m3u8")) {
+		if strings.HasSuffix(object.Key, "/") {
 			continue
 		}
-		// If it's HLS, we usually main playlist index.m3u8.
-		// If our recording strategy produces playlists for segments, we might want to only sync the master playlist.
-		// Based on StartRoomRecording: FilenamePrefix: prefix, PlaylistName: "index.m3u8"
-		// The path is recordings/{roomName}/{timestamp}/index.m3u8
-		// If flat file: recordings/{roomName}/{timestamp}.mp4 ? (need to check standard output)
-		// For HLS, we want the index.m3u8.
-		
-		isHLS := strings.HasSuffix(object.Key, "index.m3u8")
+
 		isMP4 := strings.HasSuffix(object.Key, ".mp4")
+		isHLS := strings.HasSuffix(object.Key, "index.m3u8")
 
-		if !isHLS && !isMP4 {
+		if !isMP4 && !isHLS {
 			continue
 		}
 
-		// Construct Link
-		// Config.MinioEndpoint might imply external URL, but here we construct what we store in DB.
-		// existing logic: link := fmt.Sprintf("%s/%s/%s", base, bucket, filePath)
 		base := strings.TrimRight(utility.Config.MinioEndpoint, "/")
 		bucketName := strings.Trim(utility.Config.MinioBucket, "/")
 		link := fmt.Sprintf("%s/%s/%s", base, bucketName, object.Key)
 
-		// Check if exists
 		exists, err := s.recordSvc.Exists(ctx, link)
 		if err != nil {
 			log.Printf("[SYNC] error checking existence for %s: %v", link, err)
@@ -226,34 +216,39 @@ func (s *recordingService) SyncFromMinio(ctx context.Context) error {
 			continue
 		}
 
-		// Create record
 		// Try to parse room name from key
-		// key format expected: recordings/roomName/timestamp/index.m3u8 OR recordings/roomName-timestamp.mp4 ??
-		// Let's assume standard "recordings/roomName/..."
 		parts := strings.Split(object.Key, "/")
-		roomName := "unknown"
-		if len(parts) >= 2 {
-			// parts[0] is "recordings"
+		roomName := "Unknown"
+		
+		// If it's something like recordings/roomName/timestamp/index.m3u8
+		if len(parts) >= 2 && parts[0] == "recordings" {
 			roomName = parts[1]
+		} else if isMP4 {
+			// If it's something like roomName-timestamp.mp4 from recorder
+			filename := object.Key
+			if len(parts) > 0 {
+				filename = parts[len(parts)-1]
+			}
+			
+			// Try to extract roomName by finding the last dash before .mp4
+			// e.g. "myroom-123456789.mp4" -> "myroom"
+			nameParts := strings.Split(strings.TrimSuffix(filename, ".mp4"), "-")
+			if len(nameParts) > 1 {
+				// The last part is likely the timestamp, join the rest for roomName
+				roomName = strings.Join(nameParts[:len(nameParts)-1], "-")
+			} else {
+				roomName = strings.TrimSuffix(filename, ".mp4")
+			}
 		}
 
-		name := fmt.Sprintf("Imported - %s", roomName)
+		name := fmt.Sprintf("%s Recording", roomName)
 		if isHLS {
-			// try to make specific name
 			name = fmt.Sprintf("%s (HLS)", roomName)
-		} else {
-			name = fmt.Sprintf("%s (MP4)", roomName)
 		}
-		// Add timestamp if available
-		if len(parts) >= 3 {
-             // maybe parts[2] is timestamp
-             name = fmt.Sprintf("%s - %s", name, parts[2])
-        }
 
-		// EgressID is unknown for manual sync usually
-		egressID := "sync-" + fmt.Sprintf("%d", time.Now().UnixNano())
+		egressID := object.Key // Unique identifier since it's the filename itself
 
-		_, err = s.recordSvc.Create(ctx, roomName, name, link, egressID)
+		_, err = s.recordSvc.Create(ctx, roomName, name, link, egressID, "COMPLETED")
 		if err != nil {
 			log.Printf("[SYNC] failed to create record for %s: %v", link, err)
 		} else {
@@ -264,4 +259,57 @@ func (s *recordingService) SyncFromMinio(ctx context.Context) error {
 
 	log.Printf("[SYNC] finished. imported %d new recordings", count)
 	return nil
+}
+
+func (s *recordingService) DeleteRecording(ctx context.Context, id uint) error {
+	rec, err := s.recordSvc.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get record: %w", err)
+	}
+
+	if s.minioClient != nil {
+		bucketName := strings.Trim(utility.Config.MinioBucket, "/")
+		
+		// Determine the object key from the link or egress ID
+		// The link is usually http://endpoint/bucket/object-key
+		// Let's try to extract object key from link
+		objectKey := rec.Link
+		parts := strings.SplitN(rec.Link, bucketName+"/", 2)
+		if len(parts) == 2 {
+			objectKey = parts[1]
+		} else {
+			// Fallback: use egressID if it looks like a path
+			if strings.Contains(rec.EgressID, "/") || strings.HasSuffix(rec.EgressID, ".mp4") {
+				objectKey = rec.EgressID
+			}
+		}
+
+		if objectKey != "" && objectKey != rec.Link {
+			isHLS := strings.HasSuffix(objectKey, "index.m3u8")
+			if isHLS {
+				// We need to delete the entire directory
+				dirPrefix := strings.TrimSuffix(objectKey, "index.m3u8")
+				objectsCh := s.minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+					Prefix:    dirPrefix,
+					Recursive: true,
+				})
+				for object := range objectsCh {
+					if object.Err == nil {
+						if err := s.minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{}); err != nil {
+							log.Printf("[DELETE RECORDING] inline failed to delete object %s: %v", object.Key, err)
+						}
+					}
+				}
+				log.Printf("[DELETE RECORDING] deleted HLS directory: %s", dirPrefix)
+			} else {
+				if err := s.minioClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{}); err != nil {
+					log.Printf("[DELETE RECORDING] failed to delete object %s: %v", objectKey, err)
+				} else {
+					log.Printf("[DELETE RECORDING] deleted object: %s", objectKey)
+				}
+			}
+		}
+	}
+
+	return s.recordSvc.Delete(ctx, id)
 }

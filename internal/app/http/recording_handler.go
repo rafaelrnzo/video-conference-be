@@ -1,6 +1,8 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,7 +13,6 @@ import (
 	"video-conference-be/pkg/utility"
 
 	"github.com/gin-gonic/gin"
-	livekit "github.com/livekit/protocol/livekit"
 )
 
 type RecordingHandler struct {
@@ -39,23 +40,31 @@ func (h *RecordingHandler) StartRecording(c *gin.Context) {
 		return
 	}
 
-	info, err := h.lk.StartRoomRecording(c.Request.Context(), req.RoomName, req.FilenamePrefix)
+	url := fmt.Sprintf("%s/start", utility.Config.RecorderSvcURL)
+	payload := map[string]string{
+		"roomId":   req.RoomName,
+		"roomCode": req.RoomName,
+	}
+	bodyBytes, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to start recording: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to contact recorder service: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		c.JSON(resp.StatusCode, gin.H{"error": errResp["error"]})
 		return
 	}
 
-	log.Printf("[EGRESS START] id=%s room=%s status=%s error=%s\n",
-		info.EgressId, info.RoomName, info.Status.String(), info.Error)
-
 	c.JSON(http.StatusOK, gin.H{
-		"message":   "recording started",
-		"egress_id": info.EgressId,
-		"room_name": info.RoomName,
-		"status":    info.Status.String(),
-		"error":     info.Error,
+		"message":   "recording started via recorder-service",
+		"room_name": req.RoomName,
+		"status":    "STARTED",
 	})
 }
 
@@ -69,100 +78,61 @@ func (h *RecordingHandler) StopRecording(c *gin.Context) {
 		return
 	}
 
-	info, err := h.lk.StopRoomRecording(c.Request.Context(), req.RoomName)
+	url := fmt.Sprintf("%s/stop", utility.Config.RecorderSvcURL)
+	payload := map[string]string{"roomId": req.RoomName}
+	bodyBytes, _ := json.Marshal(payload)
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "no egress found") {
-			c.JSON(http.StatusConflict, gin.H{
-				"error":  "no recording egress found for this room (maybe never started or already cleaned up)",
-				"detail": msg,
-				"room":   req.RoomName,
-				"egress": nil,
-				"status": "NONE",
-			})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop recording: " + msg})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop recording via recorder-service: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		c.JSON(resp.StatusCode, gin.H{"error": errResp["error"]})
 		return
 	}
 
-	log.Printf("[EGRESS STOP] id=%s room=%s status=%s error=%s\n",
-		info.EgressId, info.RoomName, info.Status.String(), info.Error)
-
-	var recLink string
-	var recName string
-
-	if info.Status == livekit.EgressStatus_EGRESS_COMPLETE {
-		recName, recLink = buildRecordingLinkFromInfo(info)
-		if recLink != "" {
-			roomID := info.RoomName
-			if roomID == "" {
-				roomID = req.RoomName
-			}
-			if recName == "" {
-				recName = fmt.Sprintf("%s recording", roomID)
-			}
-
-			if _, err := h.recordSvc.Create(
-				c.Request.Context(),
-				roomID,
-				recName,
-				recLink,
-				info.EgressId,
-			); err != nil {
-				log.Printf("[RECORD SAVE] failed to save record: %v", err)
-			} else {
-				log.Printf("[RECORD SAVE] saved record for room=%s link=%s", roomID, recLink)
-			}
-		} else {
-			log.Printf("[RECORD SAVE] EGRESS_COMPLETE but no file path found for egress=%s", info.EgressId)
-		}
+	var successResp struct {
+		Message    string `json:"message"`
+		OutputName string `json:"outputName"`
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "recording stopped (or already finished/aborted)",
-		"egress_id":   info.EgressId,
-		"room_name":   info.RoomName,
-		"status":      info.Status.String(),
-		"error":       info.Error,
-		"record_url":  recLink,
-		"record_name": recName,
-	})
-}
-
-func buildRecordingLinkFromInfo(info *livekit.EgressInfo) (name string, url string) {
-	if info == nil {
-		return "", ""
-	}
-
-	var objectPath string
-
-	if len(info.SegmentResults) > 0 {
-		s := info.SegmentResults[0]
-		playlist := strings.Trim(s.PlaylistName, "/")
-
-		if playlist != "" {
-			// fixed build error
-			objectPath = playlist
-		}
-	}
-
-	if objectPath == "" && len(info.FileResults) > 0 {
-		f := info.FileResults[0]
-		objectPath = strings.TrimLeft(f.Filename, "/")
-	}
-
-	if objectPath == "" {
-		return "", ""
+	if err := json.NewDecoder(resp.Body).Decode(&successResp); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode recorder response"})
+		return
 	}
 
 	endpoint := strings.TrimRight(utility.Config.MinioEndpoint, "/")
 	bucket := strings.TrimRight(utility.Config.MinioBucket, "/")
-	key := strings.TrimLeft(objectPath, "/")
+	key := strings.TrimLeft(successResp.OutputName, "/")
 
-	url = fmt.Sprintf("%s/%s/%s", endpoint, bucket, key)
-	name = objectPath
-	return name, url
+	recLink := fmt.Sprintf("%s/%s/%s", endpoint, bucket, key)
+	recName := successResp.OutputName
+
+	if _, err := h.recordSvc.Create(
+		c.Request.Context(),
+		req.RoomName,
+		recName,
+		recLink,
+		successResp.OutputName, // using outputName as egressId
+		"PROCESSING",
+	); err != nil {
+		log.Printf("[RECORD SAVE] failed to save record: %v", err)
+	} else {
+		log.Printf("[RECORD SAVE] saved record for room=%s link=%s", req.RoomName, recLink)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "recording stopped. processing in background",
+		"egress_id":   successResp.OutputName,
+		"room_name":   req.RoomName,
+		"status":      "PROCESSING",
+		"record_url":  recLink,
+		"record_name": recName,
+	})
 }
 
 func (h *RecordingHandler) ListRecords(c *gin.Context) {
@@ -212,6 +182,31 @@ func (h *RecordingHandler) UpdateRecordName(c *gin.Context) {
 	c.JSON(http.StatusOK, rec)
 }
 
+func (h *RecordingHandler) UpdateRecordStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id64, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil || id64 == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var body struct {
+		Status string `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Status) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status is required"})
+		return
+	}
+
+	rec, err := h.recordSvc.UpdateStatus(c.Request.Context(), uint(id64), body.Status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, rec)
+}
+
 func (h *RecordingHandler) DeleteRecord(c *gin.Context) {
 	idStr := c.Param("id")
 	id64, err := strconv.ParseUint(idStr, 10, 64)
@@ -220,7 +215,7 @@ func (h *RecordingHandler) DeleteRecord(c *gin.Context) {
 		return
 	}
 
-	if err := h.recordSvc.Delete(c.Request.Context(), uint(id64)); err != nil {
+	if err := h.recordingSvc.DeleteRecording(c.Request.Context(), uint(id64)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

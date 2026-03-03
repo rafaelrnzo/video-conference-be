@@ -114,6 +114,7 @@ func NewRouter() *gin.Engine {
 		adminGroup.POST("/recordings/sync", RequirePermission("recording:create"), recordingHandler.Sync)
 		adminGroup.GET("/recordings", RequirePermission("recording:read"), recordingHandler.ListRecords)
 		adminGroup.PATCH("/recordings/:id", RequirePermission("recording:update"), recordingHandler.UpdateRecordName)
+		adminGroup.PATCH("/recordings/:id/status", RequirePermission("recording:update"), recordingHandler.UpdateRecordStatus)
 		adminGroup.DELETE("/recordings/:id", RequirePermission("recording:delete"), recordingHandler.DeleteRecord)
 
 		// USERS

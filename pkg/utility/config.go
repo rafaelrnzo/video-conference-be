@@ -26,6 +26,9 @@ type AppConfig struct {
 	// Redis
 	RedisAddr     string
 	RedisPassword string
+
+	// Recorder Service
+	RecorderSvcURL string
 }
 
 var Config AppConfig
@@ -57,6 +60,8 @@ func LoadConfig() {
 
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+
+		RecorderSvcURL: getEnv("RECORDER_SVC_URL", "http://localhost:4000"),
 	}
 }
 
