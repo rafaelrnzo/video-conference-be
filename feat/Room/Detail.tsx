@@ -153,6 +153,8 @@ export const RoomDetail: FC<RoomDetailProps> = (props) => {
         hq: props.hq,
         singlePeerConnection: props.singlePeerConnection,
       }}
+      roomCode={props.roomName}
+      appToken={session?.access_token ?? ''}
     >
       <RoomContent />
     </RoomConference>

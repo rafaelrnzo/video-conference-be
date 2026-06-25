@@ -11,7 +11,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
 
   if (!session) {
     const { data } = await fetcher<{ callbackUrl: string }>(
-      process.env.KEYCLOAK_REDIRECT_URI + '/api/verify',
+      (process.env.KEYCLOAK_REDIRECT_URI || 'http://192.168.100.144:3000') + '/api/verify',
       {
         method: 'POST',
       }

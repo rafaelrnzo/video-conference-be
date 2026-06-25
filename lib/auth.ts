@@ -23,11 +23,12 @@ declare module 'next-auth/jwt' {
 }
 
 // Constants
-const AUTH_SECRET = process.env.AUTH_SECRET ?? ''
-const KEYCLOAK_ID = process.env.KEYCLOAK_ID
-const KEYCLOAK_SECRET = process.env.KEYCLOAK_SECRET
-const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER
-const APP_API_VIDEO_CONFERENCE = process.env.APP_API_VIDEO_CONFERENCE
+const AUTH_SECRET =
+  process.env.AUTH_SECRET || 'development_fallback_secret_must_be_at_least_32_characters'
+const KEYCLOAK_ID = process.env.KEYCLOAK_ID || 'keycloak-id'
+const KEYCLOAK_SECRET = process.env.KEYCLOAK_SECRET || 'keycloak-secret'
+const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER || 'https://keycloak.example.com/realms/master'
+const APP_API_VIDEO_CONFERENCE = process.env.APP_API_VIDEO_CONFERENCE || 'http://localhost:8080'
 const SESSION_MAX_AGE = 6 * 60 * 60 // 6 hours in seconds
 
 const AuthOptions: NextAuthConfig = {

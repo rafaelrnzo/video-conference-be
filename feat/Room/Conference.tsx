@@ -24,6 +24,8 @@ export interface RoomConferenceProps {
     codec: VideoCodec
     singlePeerConnection: boolean
   }
+  roomCode: string
+  appToken: string
 }
 
 export const RoomConference: FC<RoomConferenceProps> = ({ children, ...props }) => {
@@ -120,6 +122,17 @@ export const RoomConference: FC<RoomConferenceProps> = ({ children, ...props }) 
         room.state === ConnectionState.Connecting ||
         room.state === ConnectionState.Reconnecting
       ) {
+        if (propsRef.current.appToken && propsRef.current.roomCode) {
+          void fetch((process.env.NEXT_PUBLIC_BACKEND_URL || '') + '/api/livekit/leave', {
+            method: 'POST',
+            keepalive: true,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${propsRef.current.appToken}`,
+            },
+            body: JSON.stringify({ room_code: propsRef.current.roomCode }),
+          })
+        }
         room.disconnect()
       }
     }
